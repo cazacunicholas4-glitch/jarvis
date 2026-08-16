@@ -69,6 +69,13 @@ _INTERPRETER_WINDOW_SEC = 30.0
 _CONVERSATION_WINDOW_SEC = 25.0
 _CONVERSATION_IDLE_EXITS = 3
 
+# 2026-08-16 — pre-speech wait while answering a security challenge.
+# Under security's 15 s deterrent timer on purpose: if the window straddled the
+# timeout, a passphrase spoken at 14.9 s would still be in capture when the
+# deterrent fired. 6 s means a silent window ends early enough to re-arm and
+# listen again, twice, inside one challenge.
+_CHALLENGE_LISTEN_SEC = 6.0
+
 # M51 — conversation sign-offs. When the user's turn ENDS with one of these,
 # the follow-up window is NOT opened — an explicit "that's all" should close
 # the conversation cleanly, not leave the mic listening for 12s. Matched by
@@ -125,6 +132,26 @@ def _is_dismissal(text: str) -> bool:
         if norm == courtesy or norm.endswith(" " + courtesy):
             return _suffix_match(norm[: -len(courtesy)].strip())
     return False
+
+
+def _recently_authenticated(security_watcher: object) -> bool:
+    """True while a successful challenge authentication is still trusted.
+
+    Closes the 2026-08-16 "he won't stand down" bug. The user cleared a
+    challenge with the passphrase at 14:39:00 and was then refused twice
+    saying "Stand down." (voiceprint 0.72/0.73 vs a 0.77 threshold), and had
+    to restart the process to disarm. Proving your identity and then being
+    treated as a stranger thirteen seconds later is incoherent: the passphrase
+    IS the credential, so it opens a short trusted session.
+
+    Fails CLOSED — an absent or broken watcher leaves the voice lock in
+    force."""
+    if security_watcher is None:
+        return False
+    try:
+        return bool(security_watcher.recently_authenticated())
+    except Exception:  # noqa: BLE001 — a broken watcher must not break the loop
+        return False
 
 
 def _challenge_overrides_voice_lock(security_watcher: object) -> bool:
@@ -188,6 +215,19 @@ def listen_loop(
     # instance (its lock keeps them from overlapping). See the TurnRunner class.
     runner = TurnRunner(cfg, ui, reset_event, plex_client, plex_laptop_client,
                         pc_speaking, announce_speaking, mic_device=mic_device)
+
+    # 2026-08-16 — the challenge listening window. Owned here (the only
+    # consumer) and handed to security, which raises it once "Identify
+    # yourself, sir." has finished playing and lowers it when the challenge
+    # resolves. Registered defensively: an older/stubbed watcher without the
+    # setter simply never raises it, and the wake word is still the way in.
+    challenge_listen = threading.Event()
+    if security_watcher is not None:
+        try:
+            security_watcher.set_challenge_listen_event(challenge_listen)
+        except Exception as exc:  # noqa: BLE001 — optional wiring, never fatal
+            print(f"[main] challenge-listen wiring skipped: {exc}",
+                  file=sys.stderr)
 
     # M85 — tonal awareness. One analyzer per session; it holds a rolling
     # loudness baseline so "softer/louder than usual" is judged against the
@@ -584,12 +624,22 @@ def listen_loop(
                     ui.set_state(State.IDLE)
                     continue
 
-                if followup or conversation_mode.is_set():
-                    # Follow-up window (M51) OR conversation mode (M88): skip the
-                    # wake word, capture (below) directly with a longer pre-speech
-                    # timeout. The blue LISTENING pill is the visual cue; if the
-                    # user says nothing, a follow-up window elapses to wake-word
-                    # mode while conversation mode re-arms (until the idle cap).
+                # 2026-08-16: a live security challenge is a listening window
+                # too. "Identify yourself, sir." is a QUESTION, and it used to
+                # drop straight back to IDLE — so answering it meant saying
+                # "Hey Jarvis" first, then the passphrase. Measured live, that
+                # cost 7 s of a 15 s budget before the passphrase was even
+                # spoken, which is most of why the deterrent kept firing at the
+                # owner. Raised by security only once the prompt has finished
+                # playing, and cleared the moment the challenge resolves.
+                challenge_listening = challenge_listen.is_set()
+                if followup or conversation_mode.is_set() or challenge_listening:
+                    # Follow-up window (M51) OR conversation mode (M88) OR an
+                    # open challenge: skip the wake word, capture (below)
+                    # directly with a longer pre-speech timeout. The blue
+                    # LISTENING pill is the visual cue; if the user says
+                    # nothing, a follow-up window elapses to wake-word mode
+                    # while conversation mode re-arms (until the idle cap).
                     ui.set_state(State.LISTENING)
                 else:
                     ui.set_state(State.IDLE)
@@ -603,9 +653,16 @@ def listen_loop(
                         # settled from the log instead of guessed at.
                         armed_probe=(security_watcher.is_armed
                                      if security_watcher is not None else None),
+                        # Break out if a challenge opens while we're parked
+                        # here — otherwise the window above can never be seen.
+                        challenge_event=challenge_listen,
                     )
                     if ui.shutdown.is_set():
                         break
+                    if challenge_listen.is_set():
+                        # Challenge opened mid-wait: go straight to capture.
+                        challenge_listening = True
+                        ui.set_state(State.LISTENING)
 
                     # Reset clicked while we were idle-listening. Seal+clear
                     # now, without forcing another question first.
@@ -640,8 +697,13 @@ def listen_loop(
                         # start; conversation mode waits longer still (it re-arms
                         # on silence rather than exiting); the normal post-wake
                         # path uses the default.
+                        # 2026-08-16: a challenge window waits _CHALLENGE_LISTEN_SEC
+                        # — deliberately under the 15 s deterrent timer, so a
+                        # silent window ends in time to re-arm and listen again
+                        # rather than straddling the timeout.
                         max_pre_speech_sec=(
-                            _CONVERSATION_WINDOW_SEC if conversation_mode.is_set()
+                            _CHALLENGE_LISTEN_SEC if challenge_listening
+                            else _CONVERSATION_WINDOW_SEC if conversation_mode.is_set()
                             else _FOLLOWUP_WINDOW_SEC if followup else None
                         ),
                         # 2026-05-29 omni-mic echo fix: abort + discard the
@@ -795,31 +857,46 @@ def listen_loop(
                                     ui.set_state(State.IDLE)
                                     followup = False
                                     continue
-                                # 2026-08-02: log WHAT was dropped. Without this
-                                # a gate-dropped turn left no trace of its
-                                # content, so the challenge failure above was
-                                # invisible in the log — the drop and the
-                                # deterrent looked unrelated. Truncated to keep
-                                # background-media drops from bloating the log.
-                                print("[speaker] voice-lock active → ignoring "
-                                      f"unrecognized turn: "
-                                      f"{transcript.text[:80]!r}",
-                                      file=sys.stderr)
-                                # 2026-07-02 QA: a gate-dropped turn is NOT the
-                                # user — count it toward the conversation-mode
-                                # idle exit, else background media (TV/YouTube)
-                                # keeps the hands-free window alive forever.
-                                if conversation_mode.is_set():
-                                    idle_empties += 1
-                                    if idle_empties >= _CONVERSATION_IDLE_EXITS:
-                                        print("[conversation] only unrecognized "
-                                              "voices heard — mode OFF, back to "
-                                              "wake word\n", file=sys.stderr)
-                                        conversation_mode.clear()
-                                        idle_empties = 0
-                                ui.set_state(State.IDLE)
-                                followup = False
-                                continue
+                                # 2026-08-16: a turn from someone who cleared a
+                                # challenge moments ago is TRUSTED, and falls
+                                # through to normal handling rather than being
+                                # dropped — so "stand down" reaches the security
+                                # intent, and so does anything else they ask.
+                                # Scoped by _AUTH_TRUST_SECONDS and cleared on
+                                # arm/disarm.
+                                if _recently_authenticated(security_watcher):
+                                    print("[speaker] unrecognized, but "
+                                          "authenticated recently → trusting "
+                                          "this turn", file=sys.stderr)
+                                else:
+                                    # 2026-08-02: log WHAT was dropped. Without
+                                    # this a gate-dropped turn left no trace of
+                                    # its content, so the challenge failure was
+                                    # invisible in the log — the drop and the
+                                    # deterrent looked unrelated. Truncated to
+                                    # keep background-media drops from bloating
+                                    # the log.
+                                    print("[speaker] voice-lock active → "
+                                          f"ignoring unrecognized turn: "
+                                          f"{transcript.text[:80]!r}",
+                                          file=sys.stderr)
+                                    # 2026-07-02 QA: a gate-dropped turn is NOT
+                                    # the user — count it toward the
+                                    # conversation-mode idle exit, else
+                                    # background media (TV/YouTube) keeps the
+                                    # hands-free window alive forever.
+                                    if conversation_mode.is_set():
+                                        idle_empties += 1
+                                        if idle_empties >= _CONVERSATION_IDLE_EXITS:
+                                            print("[conversation] only "
+                                                  "unrecognized voices heard — "
+                                                  "mode OFF, back to wake word\n",
+                                                  file=sys.stderr)
+                                            conversation_mode.clear()
+                                            idle_empties = 0
+                                    ui.set_state(State.IDLE)
+                                    followup = False
+                                    continue
 
                 # M88: heard a real (non-gate-dropped) utterance — reset the
                 # conversation-mode idle counter. (2026-07-02 QA: moved BELOW

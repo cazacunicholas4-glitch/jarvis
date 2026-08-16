@@ -303,6 +303,11 @@ maintainable. Follow them.
   A gate is only as complete as (a) every *consumer* that opts into yielding and
   (b) every *producer* — every code path that speaks — that raises it. Both
   halves have been the source of a regression; both are now tested.
+  **Authentication must GRANT something (M101).** The voice lock and the
+  security challenge are two gates on the same person; for a while, clearing
+  the second bought nothing at the first, so the user spoke the passphrase, was
+  accepted, and was then refused twice saying "stand down". A successful
+  challenge now opens a short trusted session, cleared on arm and disarm.
   **And it must cover STARTUP, not just the steady state (M99.1).** The gate
   covered the watcher's poll loop and the dlib warm but not the YOLO *model
   load*, so arming stuttered its own confirmation every single time — the one
@@ -387,7 +392,7 @@ requirement: one intended user is not an English speaker.
 
 ## Current Status
 The project is feature-complete for its intended use and running in production
-as a supervised always-on process. ~100 milestones; the regression gate is at 57
+as a supervised always-on process. ~101 milestones; the regression gate is at 58
 suites and green.
 
 **Working:**

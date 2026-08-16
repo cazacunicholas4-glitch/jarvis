@@ -73,6 +73,7 @@ def wait_for_wake_word(
     shutdown_event: threading.Event | None = None,
     reset_event: threading.Event | None = None,
     armed_probe: "callable | None" = None,
+    challenge_event: threading.Event | None = None,
 ) -> None:
     """Block reading from `session` until the wake word scores >= threshold,
     or until shutdown_event / reset_event is set. Caller distinguishes the
@@ -97,6 +98,14 @@ def wait_for_wake_word(
         if shutdown_event is not None and shutdown_event.is_set():
             return
         if reset_event is not None and reset_event.is_set():
+            return
+        # 2026-08-16: a security challenge opened while we were parked here.
+        # Return so the caller can capture the passphrase WITHOUT the user
+        # having to say "Hey Jarvis" first. Without this early exit the whole
+        # feature is dead on arrival: this call blocks until a wake word, so a
+        # challenge starting mid-wait could never be noticed. Checked at loop
+        # top like the others, so it propagates within one 80 ms chunk.
+        if challenge_event is not None and challenge_event.is_set():
             return
         chunk = session.read()
         scores = model.predict(chunk)

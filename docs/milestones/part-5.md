@@ -1727,3 +1727,122 @@ sessions and restarts. M94 fixed the first thing it found. This entry is M94's
 scheduled verification — and it caught a *second*, more serious fault that no
 one had reported, because a silent Jarvis produces no symptom to report. The
 loop closes: build the instrument, schedule the check, read the output.
+
+## M101 — proving who you are should count for something — 2026-08-16
+
+Two reports from live security testing, both confirmed in the log, plus a third
+thing the log volunteered.
+
+### "He won't stand down"
+
+```
+14:39:00  [speaker] unrecognized voice (best=0.74)
+14:39:00  unrecognized, but a security challenge is active → routing to passphrase auth
+14:39:00  [security] challenge transcript='Strongest Avenger' ... matched=True
+14:39:00  [security] CHALLENGE cleared by voice auth
+14:39:13  [speaker] voice-lock active → ignoring unrecognized turn: 'Stand down.'   (0.72)
+14:39:21  [speaker] voice-lock active → ignoring unrecognized turn: 'stand down'    (0.73)
+14:39:32  [ui] restart requested — will relaunch after shutdown completes
+```
+
+He spoke the passphrase, was accepted, and was then refused twice thirteen
+seconds later — and had to restart the process to disarm.
+
+This is the M99 trade-off arriving exactly as designed and being wrong anyway.
+M99 deliberately kept arm/disarm behind the voice lock ("a stranger still cannot
+say *stand down*") while opening the challenge path. The result is a state
+nobody intended: **you can prove your identity and still be ignored.** The
+voiceprint that was too degraded to recognise is the same voiceprint either
+side of the passphrase; the only thing that changed is that he *authenticated*.
+
+A successful challenge now opens a short trusted session (`_AUTH_TRUST_SECONDS`,
+120 s) during which the voice lock stands down for that speaker. The risk delta
+is small — whoever this is spoke the shared secret seconds ago, and the narrower
+alternative of allowing only security intents would have let them say "stand
+down" regardless. It is cleared on both arm and disarm, so trust never outlives
+the situation that created it.
+
+Note the M99 override itself is now **live-validated at last** — line 2 above is
+it firing, at 0.74 against a 0.77 threshold. Previously it had only ever been
+exercised by tests; the one earlier challenge that cleared went through the
+normal path.
+
+### "He should keep listening after asking me to identify myself"
+
+Correct, and the log shows what it was costing:
+
+```
+14:38:42  [announce] Identify yourself, sir.
+14:38:46  challenge prompt finished — 15s timer armed
+14:38:53  [wake_word] detected (score=0.85)      <- 7s of a 15s budget, spent WAKING him
+14:38:57  captured 3.1s of audio
+14:39:00  remote ok in 3625ms  → cleared, with ~2s to spare
+```
+
+"Identify yourself, sir." is a *question*, and Jarvis dropped straight back to
+IDLE after asking it — so answering required saying "Hey Jarvis" first. Seven of
+the fifteen seconds went on the wake word, and capture plus STT took most of the
+rest. That margin is most of why the deterrent kept firing at its owner.
+
+Security now raises a listening-window event once the prompt has finished
+playing, and `listen_loop` treats it exactly like the M51 follow-up window:
+capture directly, no wake word. Three details matter:
+
+- **Raised on `on_done`, not on challenge entry.** Capturing during our own
+  prompt would just fight the self-capture suppressor.
+- **`wait_for_wake_word` needed an early exit.** It blocks until a wake word, so
+  a challenge starting mid-wait could never be noticed — without that the
+  feature is dead on arrival.
+- **Closed on the LOCKED path.** LOCKED has no timer, so leaving the window open
+  would transcribe the room indefinitely. Clearing a lockout still takes a wake
+  word — a deliberate bound on always-listening behaviour.
+
+Window is 6 s, under the 15 s deterrent timer on purpose: a passphrase spoken at
+14.9 s would otherwise still be mid-capture when the deterrent fired.
+
+### The third thing: the threshold cannot be fixed by moving it
+
+`JARVIS_SPEAKER_THRESHOLD` is 0.77. Today's scores, all of them the user:
+
+```
+dropped:    0.71 0.72 0.72 0.72 0.73 0.73 0.74 0.75
+recognized: 0.77 0.78 0.79 0.81 0.83 0.90 0.91
+```
+
+Eight of fifteen legitimate turns dropped. The M99 dropped-turn logging is what
+made this legible — every one of those eight has a transcript, and they read
+'Stand down.', 'Thank you that is all', 'set a reminder to throw away the
+trash.', 'Are there any football games on today?'. Not one is media.
+
+But the fix is *not* simply a lower number, because the same log also shows the
+gate correctly rejecting real bleed ("every car. Oh, there's a little slider
+thing.", "No one's ever done it by chance."). The bands genuinely overlap.
+
+Pairing each score with the clip that produced it — the project's own rule about
+correlating a score with its **input** — shows why:
+
+| clip length | n | mean score | dropped |
+|---|---|---|---|
+| 0–2 s | 2 | 0.660 | 2/2 |
+| 2–3 s | 19 | 0.718 | 9/19 |
+| 3–4 s | 23 | 0.762 | 8/23 |
+| 4 s+ | 39 | 0.780 | 6/39 |
+
+**Resemblyzer's confidence scales with how much audio it got**, and the score
+rises monotonically with clip length — about 0.12 between a two-second command
+and a five-second question. The turns being rejected are short by nature:
+"stand down", "that is all", "thank you". A single global threshold is being
+asked to serve both a 1.5 s command and a 5 s question, and it cannot.
+
+Left unchanged pending a decision — this dial has moved four times and each move
+was someone tuning on scores alone. The options are a duration-aware threshold,
+a longer minimum capture before gating, or accepting more media at ~0.70. The
+data above is what should decide it, not the next false reject.
+
+**Files:** `src/security.py` (trust window, challenge-listen event, cleared on
+arm/disarm/lockout), `src/listen_loop.py` (`_recently_authenticated`, trusted
+turns fall through instead of being dropped, challenge listening window),
+`src/wake_word.py` (`challenge_event` early exit),
+`tests/challenge_listen_trust_test.py` (NEW, 19 assertions).
+
+**Gate:** 58/58 green.

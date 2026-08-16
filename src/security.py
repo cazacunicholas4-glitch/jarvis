@@ -166,6 +166,23 @@ _PASSPHRASE_WORD_MATCH_THRESHOLD = 0.80
 # gets re-challenged — which would be infuriating. 60s is comfortable.
 _CHALLENGE_COOLDOWN_SECONDS = 60.0
 
+# 2026-08-16 — how long a successful challenge authentication is TRUSTED for.
+#
+# Speaking the passphrase IS proving identity. Until now the M69 voice lock went
+# straight back to judging the speaker's voiceprint the moment the challenge
+# resolved, which produced an incoherent half-state: observed live at 14:39,
+# the user cleared the challenge with the passphrase at :00 and was then ignored
+# saying "Stand down." at :13 and again at :21 (scores 0.72/0.73 against a 0.77
+# threshold). He had to restart the process to disarm. You could prove who you
+# were and still be refused.
+#
+# So authentication now opens a short trusted session, exactly as any login
+# does. The risk delta is small: whoever this is already spoke the shared
+# secret seconds ago, and the alternative — allowing ONLY security intents —
+# would have let them say "stand down" anyway. Cleared on arm and disarm so it
+# never outlives the situation that created it.
+_AUTH_TRUST_SECONDS = 120.0
+
 # Evidence snapshots from triggered challenges land here. Created lazily on
 # first save. Lives under %LOCALAPPDATA% so it follows the existing memory
 # directory convention (jarvis.log, sessions/, summaries.jsonl).
@@ -388,6 +405,15 @@ class SecurityWatcher:
         # Without it the EMPTY→PERSON latch below swallows them permanently
         # (see the re-try block in _watch_loop for the full diagnosis).
         self._presence_deferred_by_cooldown = False
+        # 2026-08-16: monotonic deadline until which a successful passphrase
+        # authentication is trusted. See _AUTH_TRUST_SECONDS.
+        self._authenticated_until = 0.0
+        # 2026-08-16: set while Jarvis is actively WAITING for the passphrase
+        # (challenge prompt finished, 15 s timer running). listen_loop treats
+        # it like the M51 follow-up window — capture directly, no wake word —
+        # so the answer to "Identify yourself, sir." can just be spoken.
+        # Injected by main(); None when the voice loop isn't wired up.
+        self._challenge_listen: "threading.Event | None" = None
         # M35-LOCKED: after a deterrent fires, instead of returning to
         # the normal ARMED+cooldown state, we enter LOCKED — _challenge_active
         # stays True (so listen_loop keeps diverting transcripts to the
@@ -562,7 +588,12 @@ class SecurityWatcher:
             self._challenge_active = False
             self._locked = False
             self._cooldown_until = time.monotonic() + _CHALLENGE_COOLDOWN_SECONDS
+            # 2026-08-16: open the trusted session. They just proved identity;
+            # the voice lock must not treat them as a stranger seconds later.
+            self._authenticated_until = time.monotonic() + _AUTH_TRUST_SECONDS
             self._challenge_evidence_bytes = b""  # no longer needed
+        # Challenge is over — stop the no-wake-word listening window.
+        self._set_challenge_listen(False)
 
         if was_locked:
             print(f"[security] LOCKED state cleared by {method} auth — "
@@ -593,6 +624,37 @@ class SecurityWatcher:
         ):
             return self._mark_authenticated("face")
         return False
+
+    def set_challenge_listen_event(self, event: "threading.Event") -> None:
+        """Wire the event listen_loop watches to open a no-wake-word listening
+        window during a challenge. Optional — security works without it, the
+        user just has to say "Hey Jarvis" before the passphrase."""
+        self._challenge_listen = event
+
+    def _set_challenge_listen(self, on: bool) -> None:
+        """Raise/lower the challenge listening window. Never raises — a UI/
+        wiring fault must not break the security state machine."""
+        ev = self._challenge_listen
+        if ev is None:
+            return
+        try:
+            ev.set() if on else ev.clear()
+        except Exception as exc:  # noqa: BLE001
+            print(f"[security] challenge-listen event failed: {exc}",
+                  file=sys.stderr)
+
+    def recently_authenticated(self) -> bool:
+        """True while a successful passphrase/face authentication is still
+        trusted (see _AUTH_TRUST_SECONDS).
+
+        The voice lock consults this so the person who JUST proved their
+        identity is not immediately re-judged on a degraded voiceprint — the
+        2026-08-16 "he won't stand down" bug. Fail-safe: any error reads as
+        False, i.e. the lock stays in force."""
+        try:
+            return time.monotonic() < self._authenticated_until
+        except Exception:  # noqa: BLE001
+            return False
 
     def _is_announcing(self) -> bool:
         """True while a proactive announce is on the wire. The cooperative
@@ -678,6 +740,9 @@ class SecurityWatcher:
         # someone who just armed and is still in frame; the cooldown is not.
         self._cooldown_until = 0.0
         self._presence_deferred_by_cooldown = False
+        # A fresh arm is a fresh session: no inherited trust, no stale window.
+        self._authenticated_until = 0.0
+        self._set_challenge_listen(False)
         # M39: refresh the enrolled face encoding from disk at each arm.
         # Cheap (~1ms numpy load) and picks up re-enrollment without a
         # Jarvis restart. None on any failure (no path configured, no
@@ -721,6 +786,12 @@ class SecurityWatcher:
             return
         self._armed.clear()
         self._stop.set()
+        # 2026-08-16: the trusted session and the listening window are both
+        # scoped to being ARMED. Dropping them here stops the trust window
+        # outliving the situation that justified it — once disarmed, the voice
+        # lock goes back to its normal behaviour immediately.
+        self._authenticated_until = 0.0
+        self._set_challenge_listen(False)
         # M35: clear any pending challenge so disarming mid-challenge
         # doesn't leave stale state for the next arm. No deterrent fires
         # on this path — the user explicitly disarmed, so the trigger is
@@ -1070,7 +1141,16 @@ class SecurityWatcher:
                 if not self._challenge_active:
                     return  # auth resolved during playback — no-op
                 self._challenge_started_at = time.monotonic()
-            print("[security] challenge prompt finished — 15s timer armed",
+            # 2026-08-16: open a no-wake-word listening window for exactly the
+            # challenge period. Raised HERE, after the prompt has finished
+            # playing, not when the challenge opens — capturing during our own
+            # "Identify yourself, sir." would just fight the self-capture
+            # suppressor. Also buys back the time the wake word used to cost:
+            # observed live, the wake word ate 7 s of a 15 s budget before the
+            # passphrase could even be spoken.
+            self._set_challenge_listen(True)
+            print("[security] challenge prompt finished — 15s timer armed; "
+                  "listening for the passphrase (no wake word needed)",
                   file=sys.stderr)
 
         try:
@@ -1123,6 +1203,11 @@ class SecurityWatcher:
             self._challenge_started_at = 0.0  # disable timer — no re-fire
             self._locked = True
             jpeg_bytes = self._challenge_evidence_bytes
+        # 2026-08-16: close the no-wake-word window. LOCKED has no timer, so
+        # leaving it open would mean transcribing the room indefinitely.
+        # Clearing a LOCKED state still needs "Hey Jarvis" + the passphrase —
+        # a deliberate, bounded scope for the always-listening behaviour.
+        self._set_challenge_listen(False)
             # Keep _challenge_evidence_bytes set — useful if we ever want
             # to re-save or re-send to Discord on user request.
 
