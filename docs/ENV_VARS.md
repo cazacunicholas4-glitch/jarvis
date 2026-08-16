@@ -109,12 +109,34 @@ threshold. **Correlate a score with its capture conditions before touching this
 number**: with clean audio there is ~0.12 of headroom, and with degraded audio
 no threshold is simultaneously safe against media and fair to the user.
 
-Raising it toward 0.75 favours rejecting media; lowering it toward 0.68 favours
-never ignoring the real user. Security challenges no longer depend on this at
-all — `_challenge_overrides_voice_lock` (`src/listen_loop.py`) routes a
-challenge-time transcript to the passphrase comparator regardless of score, so a
-degraded voice can still authenticate. Arm/disarm intents *do* stay behind the
-gate, so a stranger cannot say "stand down".
+Raising it toward 0.77 favours rejecting media; lowering it toward 0.68 favours
+never ignoring the real user.
+
+**The measurement that should settle future moves (M101, 2026-08-16).** Pairing
+each score with the *clip that produced it*, rather than reading scores alone:
+
+| clip length | n | mean score | dropped |
+|---|---|---|---|
+| 0–2 s | 2 | 0.660 | 2/2 |
+| 2–3 s | 19 | 0.718 | 9/19 |
+| 3–4 s | 23 | 0.762 | 8/23 |
+| 4 s+ | 39 | 0.780 | 6/39 |
+
+Resemblyzer's confidence **scales with how much audio it got** — roughly 0.12
+between a two-second command and a five-second question. The turns that get
+wrongly dropped are short by nature ("stand down", "that is all", "thank you"),
+while media bleed sits at ≤0.70. A single global threshold is therefore being
+asked to serve both a 1.5 s command and a 5 s question, and no value does both
+well. If false rejects persist, the real fixes are a **duration-aware
+threshold** or a **longer minimum capture before gating** — not another move of
+this number.
+
+Security no longer depends on this gate: `_challenge_overrides_voice_lock`
+(`src/listen_loop.py`) routes a challenge-time transcript to the passphrase
+comparator regardless of score, and since M101 a successful authentication opens
+a short trusted session (`_AUTH_TRUST_SECONDS`) so the person who just proved
+their identity can also disarm. Outside that window, arm/disarm intents stay
+behind the gate, so a stranger cannot say "stand down".
 
 ## Proactive intelligence (M78.2 / M79 / M83)
 
