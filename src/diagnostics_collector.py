@@ -1,12 +1,17 @@
 """run_pc_diagnostics_collector — deep Windows diagnostic snapshot.
 
 Wraps the user's standalone collector script
-(`~/repos/hs-windows-diagnostics/Invoke-HSWindowsDiagnostics.ps1`) — a
-PowerShell port of work's `diagnostics.bash` that gathers host /
-security / package / event-log telemetry into a `.tar.gz` of ~47 small text
-files. This tool runs it, extracts the archive, and hands Claude a file
-listing so it can then `read_local_file` the specific bundle files relevant
-to the user's question.
+(`~/repos/windows-diagnostics/Invoke-WindowsDiagnostics.ps1`) — a read-only
+PowerShell tool that gathers host / hardware / network / security / software /
+event-log state into a `.zip` of ~35 small text files, plus a `SUMMARY.md`
+that flags likely problems. This tool runs it, extracts the archive, and hands
+Claude a file listing so it can then `read_local_file` the specific bundle
+files relevant to the user's question — starting with SUMMARY.md.
+
+Repointed 2026-08-17 from the retired `hs-windows-diagnostics`, which was
+derived from a former employer's internal tooling. The replacement emits
+`.zip` (Compress-Archive) rather than `.tar.gz`, and drops the old
+`-NoSplit` / `-NoUnicode` flags — it never splits and its UI is always ASCII.
 
 Relationship to the M23 `pc_diagnostics` tool:
   - `pc_diagnostics` = "what's happening RIGHT NOW" — live psutil/PowerShell
@@ -96,12 +101,13 @@ RUN_PC_DIAGNOSTICS_COLLECTOR_TOOL = {
 # env var (read at call time, like games.py's RAWG_API_KEY — it's consumed
 # only here, so no need to thread it through Config).
 DEFAULT_COLLECTOR_SCRIPT = (
-    Path.home() / "repos" / "hs-windows-diagnostics" / "Invoke-HSWindowsDiagnostics.ps1"
+    Path.home() / "repos" / "windows-diagnostics" / "Invoke-WindowsDiagnostics.ps1"
 )
 
 # Output goes under %LOCALAPPDATA%\Jarvis\diagnostics\ — alongside the log and
-# the memory store, not in the script's own default (%LOCALAPPDATA%\HS\...),
-# so Jarvis owns the lifecycle (extraction + pruning) of what it produced.
+# the memory store, not the script's own default
+# (%LOCALAPPDATA%\WindowsDiagnostics\), so Jarvis owns the lifecycle
+# (extraction + pruning) of what it produced.
 def _diag_dir() -> Path:
     d = default_base_dir() / "diagnostics"
     d.mkdir(parents=True, exist_ok=True)
@@ -126,19 +132,13 @@ def _resolve_script_path() -> Path:
     return Path(override).expanduser() if override else DEFAULT_COLLECTOR_SCRIPT
 
 
-def _subprocess_env() -> dict[str, str]:
-    """Copy of the current environment with %SystemRoot%\\System32 pushed to
-    the FRONT of PATH. The collector script shells out to `tar` for .tar.gz
-    packaging; we need Windows' bsdtar (System32\\tar.exe), not whatever else
-    might shadow it on PATH — notably MSYS2/Git-Bash's GNU `tar`, which mangles
-    Windows-style absolute paths and exits 2. If Jarvis was launched from a
-    Git Bash terminal, that GNU tar would be first on PATH without this."""
-    env = dict(os.environ)
-    system32 = str(Path(env.get("SystemRoot", r"C:\Windows")) / "System32")
-    parts = env.get("PATH", "").split(os.pathsep)
-    if not parts or parts[0].lower() != system32.lower():
-        env["PATH"] = os.pathsep.join([system32, *parts])
-    return env
+# NOTE: this module used to force %SystemRoot%\System32 to the front of PATH
+# before invoking the collector, because the old script shelled out to bare
+# `tar` and a GNU tar from MSYS2/Git-Bash would win the PATH race and mangle
+# Windows absolute paths. The replacement script packages with PowerShell's
+# built-in Compress-Archive, which has no PATH ambiguity, so the workaround is
+# gone rather than left as dead code with a comment that no longer describes
+# anything real.
 
 
 def _prune_old_bundles(diag_dir: Path) -> None:
@@ -170,8 +170,10 @@ def _rmtree_quiet(path: Path) -> None:
 
 
 def _archive_stem(archive: Path) -> str:
-    """'hs-windiag-host-2026-05-12-093015.tar.gz' -> 'hs-windiag-host-...-093015'.
-    Path.stem only strips one suffix, so '.tar.gz' needs two passes."""
+    """'windiag-host-20260817-165234.zip' -> 'windiag-host-20260817-165234'.
+    Path.stem only strips one suffix, so a legacy '.tar.gz' needs two passes.
+    Legacy tar suffixes are still handled so bundles collected before the
+    2026-08-17 repoint remain readable."""
     name = archive.name
     for suffix in (".tar.gz", ".tgz", ".zip"):
         if name.lower().endswith(suffix):
@@ -216,9 +218,9 @@ def _extract(archive: Path) -> tuple[Path | None, str | None]:
 def _list_bundle_files(extract_dir: Path) -> tuple[str, list[str]]:
     """Walk the extracted bundle and return (base_dir, sorted_relative_paths).
 
-    The bundle commonly nests one level (hs-windiag-<host>-<ts>/host/os.txt,
+    The bundle commonly nests one level (windiag-<host>-<ts>/system/os.txt,
     ...), so base_dir is the deepest common ancestor — keeping the per-file
-    entries short ('host/cpu.txt', not a 190-char absolute path). The caller
+    entries short ('system/os.txt', not a 190-char absolute path). The caller
     builds read_local_file paths as base_dir + os.sep + relative."""
     abs_files: list[str] = []
     for root, _dirs, files in os.walk(extract_dir):
@@ -253,7 +255,8 @@ def execute_run_pc_diagnostics_collector(params: dict) -> str:
     if not script.is_file():
         return (
             f"Diagnostics collector script not found at {script}. "
-            f"Expected it at ~/repos/hs-windows-diagnostics/ — clone or point "
+            f"Expected it at ~/repos/windows-diagnostics/ — clone "
+            f"github.com/samonti86/windows-diagnostics or point "
             f"DIAGNOSTICS_COLLECTOR_PATH at it. (The live pc_diagnostics tool "
             f"still works for a quick snapshot.)"
         )
@@ -275,8 +278,6 @@ def execute_run_pc_diagnostics_collector(params: dict) -> str:
         "-ExecutionPolicy", "Bypass",  # the script may be unsigned; scoped to this call only
         "-File", str(script),
         "-OutDir", str(diag_dir),
-        "-NoSplit",     # always one archive — we extract it, never reassemble parts
-        "-NoUnicode",   # ASCII-only progress UI → clean captured output
         "-MaxEvents", "500" if quick else "2000",
     ]
     if quick:
@@ -292,7 +293,6 @@ def execute_run_pc_diagnostics_collector(params: dict) -> str:
             errors="replace",
             timeout=timeout,
             creationflags=_CREATE_NO_WINDOW,
-            env=_subprocess_env(),
         )
     except subprocess.TimeoutExpired:
         return (
@@ -354,12 +354,19 @@ def execute_run_pc_diagnostics_collector(params: dict) -> str:
         f"read_local_file with the bundle root + path separator + the relative "
         f"path (e.g. {os.path.join(base_dir, rel_files[0]) if rel_files else base_dir}):\n"
         f"{listing}\n\n"
-        f"Orientation: events/ holds recent errors+warnings (system.txt, "
-        f"application.txt, setup.txt, windows_update.txt, "
-        f"diagnostics_performance.txt, security.txt); host/ has OS / hardware / "
-        f"network / processes / services / users / scheduled tasks; security/ "
-        f"has Defender, BitLocker status, firewall, UAC, Secure Boot, TPM, "
-        f"audit policy, certs; packages/ has installed software and Windows "
-        f"updates; BUNDLE_INFO.md has the run metadata. Read the files relevant "
-        f"to the user's question, then summarize — don't read all of them."
+        f"Orientation: READ SUMMARY.md FIRST — it carries the run metadata and a "
+        f"severity-ranked table of problems the collector detected automatically "
+        f"(disk space, disk health, Defender, Secure Boot, BitLocker, firewall, "
+        f"pending reboot, uptime, stopped auto-services, bugchecks, bad devices). "
+        f"It usually answers the question on its own. Then, if needed: system/ has "
+        f"OS, build, uptime, BIOS, users, env-var names, pending-reboot flags; "
+        f"hardware/ has CPU, memory, disk health, free space, GPU, problem devices; "
+        f"network/ has adapters, ipconfig, routes, DNS cache, connections; "
+        f"security/ has Defender, AV products, BitLocker, Secure Boot, TPM, UAC, "
+        f"firewall; software/ has services, top processes by memory, startup items, "
+        f"scheduled tasks, updates, installed programs; events/ has System.txt and "
+        f"Application.txt errors+warnings plus critical_stops.txt (bugchecks and "
+        f"unexpected shutdowns), disk_errors.txt and boot_performance.txt. "
+        f"Read only the files relevant to the user's question, then summarize — "
+        f"don't read all of them."
     )

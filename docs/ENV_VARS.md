@@ -300,7 +300,7 @@ default-off flag for a headset/quiet-room scenario. Wake-word barge-in
 | Variable | Default | Read in | Purpose |
 |----------|---------|---------|---------|
 | `JARVIS_KNOWLEDGE_DIR` | `""` (→ `~/repos/jarvis-knowledge`) | knowledge.py | Knowledge-base corpus dir. |
-| `DIAGNOSTICS_COLLECTOR_PATH` | `""` (→ sibling repo) | diagnostics_collector.py | Path to the hs-windows-diagnostics script. |
+| `DIAGNOSTICS_COLLECTOR_PATH` | `""` (→ sibling repo) | diagnostics_collector.py | Path to the windows-diagnostics script. |
 
 ## Internal (set BY Jarvis, not by the user)
 
