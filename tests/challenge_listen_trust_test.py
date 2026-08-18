@@ -151,5 +151,50 @@ w._check_challenge_timeout()
 check("LOCKED state entered", w._locked is True)
 check("window CLOSED on lockout — no endless transcription", ev.is_set() is False)
 
+# --- _auto_disarm must mirror deactivate() (2026-08-18 audit) -------------
+# _auto_disarm is the memory-watchdog / model-load-failure exit. Its docstring
+# promises it clears armed state "exactly like deactivate()", and the watcher
+# thread exits immediately after, so anything left set is left set FOREVER.
+# M101 added two armed-scoped fields and cleared them only in deactivate():
+# a challenge listening window left raised would make listen_loop skip the wake
+# word and transcribe the room indefinitely. Pin the parity so the next field
+# added cannot quietly break it again.
+print("")
+print("[group] _auto_disarm clears all armed-scoped state")
+
+w = make_watcher()
+ev = threading.Event()
+w.set_challenge_listen_event(ev)
+w._armed.set()
+w._challenge_active = True
+w._locked = True
+w._authenticated_until = time.monotonic() + 999
+ev.set()
+
+w._auto_disarm()
+
+check("_auto_disarm disarms", w.is_armed() is False)
+check("_auto_disarm clears the challenge", w._challenge_active is False)
+check("_auto_disarm clears LOCKED", w._locked is False)
+check("_auto_disarm CLOSES the listening window (no endless transcription)",
+      ev.is_set() is False)
+check("_auto_disarm ends the trusted session",
+      w.recently_authenticated() is False)
+
+_a, _b = make_watcher(), make_watcher()
+for _w in (_a, _b):
+    _w.set_challenge_listen_event(threading.Event())
+    _w._armed.set()
+    _w._challenge_active = True
+    _w._locked = True
+    _w._authenticated_until = time.monotonic() + 999
+_a.deactivate()
+_b._auto_disarm()
+_fields = ("_challenge_active", "_locked", "_authenticated_until")
+_diff = [f for f in _fields if bool(getattr(_a, f)) != bool(getattr(_b, f))]
+check("deactivate() and _auto_disarm() agree on every armed-scoped field",
+      not _diff, f"diverged on {_diff}")
+
+
 print(f"\n{PASSED} passed, {FAILED} failed")
 sys.exit(1 if FAILED else 0)

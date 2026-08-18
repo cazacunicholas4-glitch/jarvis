@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 import threading
 import time
 from enum import Enum
@@ -335,21 +336,43 @@ class JarvisTray:
         self._state_changed.set()
 
     def _animation_loop(self) -> None:
+        # 2026-08-18 audit: the per-iteration body is GUARDED. This thread
+        # writes to pystray's icon (a Win32 resource) and builds PIL images —
+        # both can raise while the icon is being torn down, and an escape here
+        # kills the thread silently. The consequence is not a missing
+        # animation: the tray icon is the primary status indicator, so a dead
+        # loop FREEZES it on whatever state it last drew, which then actively
+        # misinforms (a "speaking" dot on an idle assistant). Same failure mode
+        # as the M100 Announcer death — decoration must never be able to kill
+        # its own worker.
+        errors = 0
         while not self.shutdown.is_set():
-            state = self._state
-            self.icon.title = f"Jarvis ({state.name.lower()})"
+            try:
+                state = self._state
+                self.icon.title = f"Jarvis ({state.name.lower()})"
 
-            if state == State.SPEAKING:
-                # Sine-wave pulse, brightness 0.4..1.0 at 2 Hz, 8 fps update.
-                t = time.time()
-                brightness = 0.7 + 0.3 * math.sin(t * 2 * math.pi * 2)
-                self.icon.icon = _make_circle(state.value, brightness)
-                time.sleep(1 / 8)
-            else:
-                self.icon.icon = _make_circle(state.value, 1.0)
-                # Park until next state change (or 2s safety timeout).
-                self._state_changed.wait(timeout=2.0)
-                self._state_changed.clear()
+                if state == State.SPEAKING:
+                    # Sine-wave pulse, brightness 0.4..1.0 at 2 Hz, 8 fps.
+                    t = time.time()
+                    brightness = 0.7 + 0.3 * math.sin(t * 2 * math.pi * 2)
+                    self.icon.icon = _make_circle(state.value, brightness)
+                    time.sleep(1 / 8)
+                else:
+                    self.icon.icon = _make_circle(state.value, 1.0)
+                    # Park until next state change (or 2s safety timeout).
+                    self._state_changed.wait(timeout=2.0)
+                    self._state_changed.clear()
+                errors = 0
+            except Exception as exc:  # noqa: BLE001 — the loop MUST survive
+                # Log the first few only: if the icon is gone for good this
+                # would otherwise spin a log line every 2 s forever.
+                errors += 1
+                if errors <= 3:
+                    print(f"[tray] animation tick failed "
+                          f"({type(exc).__name__}: {exc})"
+                          + (" — further occurrences suppressed"
+                             if errors == 3 else ""), file=sys.stderr)
+                self.shutdown.wait(timeout=1.0)
 
     def run(self) -> None:
         """Blocks. Runs the icon event loop. Animation runs in a daemon thread."""

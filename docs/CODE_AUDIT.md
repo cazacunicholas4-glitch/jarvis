@@ -1,3 +1,164 @@
+# Jarvis — Code Audit (consolidation pass #5)
+
+**Date:** 2026-08-18
+**Scope:** Full end-to-end pass, user-requested ("go end to end, doublechecking
+everything... see if there could be any improvements"). Triggered on TWO of the
+documented conditions at once: ~20 milestones since pass #4 (M101 vs pass #4 at
+2026-07-03), and `src/security.py` crossing the 1,500-line god-file threshold
+(now 1,700). No new product features.
+**Method:** LOG REVIEW FIRST, per the standing rule — 14- and 60-day
+`self_review` scans before any code was read. Then **AST-based structural scans
+rather than grep**, targeting the classes of defect this project has actually
+been bitten by: unguarded daemon-loop bodies (the M100 failure mode), blocking
+subprocess calls without timeouts, resource acquisition without a release path,
+bare/over-broad exception handlers, mutable default arguments, and
+declared-vs-imported dependency drift. Every finding was re-verified against
+source, and every fix was proven by reverting it and watching the new test fail.
+**Baseline:** 58/58 gates green before any change. **After:** 58/58, with three
+suites extended (`self_review` 23 to 28, `challenge_listen_trust` 19 to 25,
+`outlook_calendar` 25 to 31).
+
+Severity legend: 🔴 confirmed bug · 🟡 risk/latent · 🟢 polish.
+
+---
+
+## Tier 1 — correctness
+
+### 🔴 1. `_auto_disarm` no longer mirrored `deactivate()` — could leave Jarvis transcribing the room forever
+
+Found by auditing **code written two days earlier**, in M101. `_auto_disarm` is
+the memory-watchdog / model-load-failure exit; its own docstring promises it
+clears armed state "exactly like `deactivate()`", and the watcher thread exits
+immediately after it, so anything left set is left set *permanently*.
+
+M101 added two armed-scoped fields and cleared them only in `deactivate()`:
+
+- **the challenge listening window.** Left raised, `listen_loop` skips the wake
+  word and captures continuously — the exact failure the LOCKED path was
+  explicitly guarded against ("LOCKED has no timer, so leaving it open would
+  transcribe the room indefinitely"). The sibling path was missed.
+- **the post-authentication trust window**, which must not outlive the armed
+  session that granted it.
+
+Reachable whenever the memory watchdog trips *during* an open challenge. Fixed,
+and pinned by a **parity assertion** that compares every armed-scoped field
+after `deactivate()` against the same field after `_auto_disarm()` — so the next
+field added cannot break the promise silently. Reverting the fix fails 3
+assertions.
+
+This is the project's own *fix the failure mode, not the instance* rule catching
+its own author, one milestone later.
+
+### 🔴 2. An empty iCal body was reported as a bad URL
+
+Outlook returned HTTP 200 with an empty body three times on 2026-08-12. The body
+went straight to the parser, which raised, and the user-facing message was "I
+couldn't parse the Outlook iCal feed, sir — the URL might be pointing at
+something else." The URL was correct the whole time. A message that sends
+someone chasing a configuration problem that does not exist is worse than no
+message. Empty/whitespace bodies are now caught before the parser and reported
+as the transient hiccup they are.
+
+## Tier 2 — latent
+
+### 🟡 3. The tray animation loop could die and freeze the status icon
+
+The last unguarded long-lived loop body in the tree, found by an AST scan for
+the M100 shape. It writes to a pystray icon (a Win32 resource) and builds PIL
+images every tick — both can raise during teardown. An escape kills the thread,
+and because the tray icon is the *primary* status indicator, the consequence is
+not a missing animation: the icon **freezes on whatever state it last drew**, so
+an idle assistant can sit showing a "speaking" dot indefinitely. Guarded, with
+first-3-only error logging so a permanently dead icon cannot spin a log line
+every two seconds.
+
+### 🟡 4. `self_review` scored Jarvis's own speech as faults
+
+Jarvis's spoken replies are written to the same log, and natural language is
+full of the fault vocabulary. A real health report ranked "...Rhea Ripley was
+**unable to** defend her..." alongside genuine faults. This is signal hygiene,
+not cosmetics — `self_review` reports a ranked top-N, so chatty false positives
+push real faults off the end of the list, and `self_review` is the instrument
+that found M100.
+
+The discriminator was **chosen from the log, not guessed**. Of the 13 untagged
+"concerning" lines in the entire log:
+
+| kind | length |
+|---|---|
+| real faults (`RuntimeError: microphone stream stalled...`) | 19-93 chars |
+| model prose (`Yeah, it's not looking great. Thunder...`) | 476-567 chars |
+
+A 5x gap, so the cut sits at 200. Tagged lines (`[outlook] ...`) stay faults at
+any length. **A first attempt at this rule was wrong and was caught before
+shipping:** requiring a `[tag]` dropped the genuine untagged
+`Socket exception: An existing connection was forcibly closed` along with the
+prose. Measuring the actual length distribution is what separated them.
+
+### 🟡 5. Two dependency gaps that only bite on a rebuild
+
+- **`face_recognition` was absent from `requirements.txt` entirely.** It is one
+  of the **two** ways to clear a security challenge — and the one that cleared
+  the user's 2026-08-18 live test in two seconds. It is lazily imported and
+  every call site degrades to "face auth disabled", so a rebuilt machine loses
+  an authentication factor **silently**. The omission was almost certainly
+  deliberate (dlib compiles C++ and needs MSVC Build Tools, so an uncommented
+  entry would break `pip install -r` for anyone without a toolchain) — so the
+  fix is to make the intent explicit: a documented, commented-out optional
+  entry, plus a `doctor.py` line reporting whether it is present.
+- **`comtypes` is imported directly** by `system_control.py` but was present
+  only transitively via pycaw. A direct import deserves a direct declaration,
+  or a pycaw change breaks volume control at runtime instead of at install time.
+
+### 🟡 6. `doctor.py` reported a working wake word as missing
+
+It checked `~/.cache/openwakeword`, but openWakeWord ships `hey_jarvis` inside
+the package and only uses that cache for models fetched later. So the health
+check *meant to reassure you* reported "not yet downloaded" on a machine that
+had been waking to "Hey Jarvis" for months. Now checks where the model lives.
+
+## Verified non-issues (checked, deliberately not changed)
+
+- **All blocking `subprocess` calls have timeouts** (AST-verified, 0 exceptions).
+- **No bare `except:`, no `except BaseException` misuse, no mutable defaults.**
+  The two `BaseException` handlers are correct: `atomic_io` unlinks its temp
+  file and **re-raises**; the TTS producer records the error and still posts its
+  sentinel so the consumer cannot hang.
+- **Every camera capture releases on all paths** (`cap = None` + `try/finally`),
+  the M44.3 contract.
+- **The restricted-origin boundary is intact and enforced at both gates** — the
+  tool-list filter in `stream_response` *and* the executor deny-check — plus a
+  third touch so denied attempts are not misreported as "fired" in telemetry.
+  34 client tools, 12 denied; every one of the 23 reachable from a phone or
+  Discord is read-only or a deliberately-allowed write (reminders, knowledge).
+- **The iCal "gave up after 3 attempts" lines are NOT a regression.** They are
+  per-poll give-ups on a ~2-minute network blip, each recovered on the next
+  60-second poll, with no user-visible effect. M94's "zero terminal failures"
+  described a lucky 7-day window, not a permanent property — the memory has been
+  corrected so a future session does not chase it.
+- **No TODO/FIXME/HACK markers anywhere in `src/`.**
+- **`CLAUDE.md`'s factual claims are accurate**: "36 tools" = 34 client + 2
+  server; "gate is at 58" = 55 suites + 3 structural gates.
+
+## Deferred (real, deliberately not done at the tail of an audit)
+
+- **`src/security.py` is 1,700 lines** — one class, 36 methods, over the
+  documented 1,500 threshold. The notification/evidence methods
+  (`_send_discord_alert_async`, `_send_email_alert_async`,
+  `_save_evidence_bytes`) are the clean extraction: they touch neither the
+  challenge lock nor the armed state. But this is a working always-on security
+  state machine, a split has **no correctness payoff**, and doing it at the tail
+  of an audit is precisely the risky-change-at-session-end the close-out
+  protocol says to surface rather than perform. It wants its own session, with
+  the seam tested first.
+- **The speaker threshold still cannot be fixed by moving it** (see M101 and
+  `docs/ENV_VARS.md`): the score scales with clip length, so one global number
+  cannot serve a 1.5 s command and a 5 s question. Wants a duration-aware
+  threshold or a longer minimum capture.
+- **Armed-mode capture starvation** remains open and unchanged (M99).
+
+---
+
 # Jarvis — Code Audit (consolidation pass)
 
 **Date:** 2026-07-02

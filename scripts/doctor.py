@@ -251,6 +251,19 @@ def check_hardware(env: dict[str, str]) -> None:
     git = shutil.which("git")
     line(OK if git else WARN, "git", git or "absent - self-update is disabled")
 
+    # 2026-08-18 audit: face auth is one of the TWO ways to clear a security
+    # challenge, is lazily imported, and degrades SILENTLY when absent — and it
+    # is deliberately not in requirements.txt (dlib needs MSVC Build Tools).
+    # A rebuilt machine therefore loses an authentication factor with nothing
+    # in the logs saying so. Report it where someone is already looking.
+    try:
+        import face_recognition  # noqa: F401,PLC0415
+        line(OK, "Enrolled-face auth (M39)", "face_recognition present")
+    except Exception:  # noqa: BLE001 — absence is the normal optional case
+        line(INFO, "Enrolled-face auth (M39)",
+             "not installed - challenges fall back to the spoken passphrase "
+             "only (needs MSVC Build Tools; see requirements.txt)")
+
     section("Model caches (downloaded on first use)")
     home = Path.home()
     # 2026-08-16: openWakeWord ships hey_jarvis with the package and loads it

@@ -1670,6 +1670,20 @@ class SecurityWatcher:
         pin the 🔒 indicator forever."""
         self._armed.clear()
         self._stop.set()
+        # 2026-08-18 audit: mirror deactivate() COMPLETELY. M101 added two
+        # pieces of armed-scoped state and only cleared them in deactivate(),
+        # which silently broke the parity this docstring promises:
+        #   - the challenge listening window. The watcher exits right after
+        #     this, so nothing would ever lower it again — listen_loop would
+        #     skip the wake word and transcribe the room INDEFINITELY. That is
+        #     the exact failure the LOCKED path is guarded against; this
+        #     sibling path was missed.
+        #   - the post-authentication trust window, which must not outlive the
+        #     armed session that granted it.
+        # Reachable whenever the memory watchdog trips or the model fails to
+        # load DURING an open challenge.
+        self._set_challenge_listen(False)
+        self._authenticated_until = 0.0
         with self._challenge_lock:
             self._challenge_active = False
             self._challenge_evidence_bytes = b""

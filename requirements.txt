@@ -130,3 +130,26 @@ discord.py>=2.7.1
 # sentinel in src/game_length.py so a broken install degrades gracefully).
 # Pulls aiohttp + beautifulsoup4 + fake_useragent transitively.
 howlongtobeatpy>=1.0.21
+
+# Windows audio endpoint COM bindings — imported DIRECTLY by
+# src/system_control.py (`import comtypes`) for the master-volume path.
+# pycaw already pulls it transitively, but a direct import deserves a direct
+# declaration: if pycaw ever drops or renames the dep, volume control breaks
+# at runtime rather than at install time. Pure Python, no build step.
+comtypes>=1.2
+
+# ── OPTIONAL: enrolled-face authentication (M39) ────────────────────────────
+# DELIBERATELY COMMENTED OUT, not forgotten. `face_recognition` needs dlib,
+# which compiles C++ and therefore requires MSVC Build Tools on Windows —
+# putting it above would make `pip install -r requirements.txt` FAIL on a
+# machine without a C++ toolchain, for a feature that is optional.
+#
+# It is imported lazily (src/face_auth.py) and every call site degrades to
+# "face auth disabled", so the absence is silent. That is the risk this note
+# exists to close: face auth is ONE OF THE TWO ways to clear a security
+# challenge (the other is the spoken passphrase), so a rebuilt machine
+# quietly loses an authentication factor with nothing in the logs saying so.
+# `python scripts/doctor.py` reports whether it is present.
+#
+# To enable: install MSVC Build Tools, then uncomment:
+# face_recognition>=1.3

@@ -218,5 +218,43 @@ check("self_review is READ-ONLY, so not denied to remote origins",
 check("bad days= input is clamped, not fatal",
       isinstance(sr.execute_self_review({"days": "banana"}), str))
 
+# --- conversational false positives (2026-08-18 audit) --------------------
+# Jarvis's own spoken replies land in the same log, and prose is full of the
+# fault vocabulary. A real report once ranked "...Rhea Ripley was unable to
+# defend her..." alongside genuine faults. Untagged PROSE is dropped; untagged
+# mechanical faults (which are short) must be kept.
+print("")
+print("[group] model prose must not be scored as a fault")
+
+
+def _is_fault(body):
+    """Mirror of the scan() predicate for a single log body."""
+    if not sr._CONCERNING.search(body) or sr._BENIGN.search(body):
+        return False
+    return bool(sr._TAGGED.match(body)) or len(body) <= sr._MAX_UNTAGGED_FAULT_LEN
+
+
+_PROSE = ("Let me check on that - that is not matching what I have got. You "
+          "are right, Saul - I was behind on that one. Rhea Ripley was unable "
+          "to defend her WWE Women's Championship at SummerSlam, so an interim "
+          "title was created, and Chelsea Green won the Interim Championship "
+          "in a Ladder Match, which means technically Ripley is still the "
+          "reigning champion on paper even though she is sidelined for now.")
+
+check("a long spoken reply containing 'unable to' is NOT a fault",
+      _is_fault(_PROSE) is False)
+check("...and that prose is genuinely longer than the cap",
+      len(_PROSE) > sr._MAX_UNTAGGED_FAULT_LEN)
+check("a short untagged mechanical fault IS kept",
+      _is_fault("Socket exception: An existing connection was forcibly "
+                "closed by the remote host (10054)") is True)
+check("a bare exception line IS kept",
+      _is_fault("RuntimeError: microphone stream stalled - no audio for 10s")
+      is True)
+check("a TAGGED fault is kept no matter how long",
+      _is_fault("[outlook] ical fetch failed: "
+                + "x" * (sr._MAX_UNTAGGED_FAULT_LEN + 50)) is True)
+
+
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(1 if _failed else 0)

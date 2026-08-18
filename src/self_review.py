@@ -54,6 +54,25 @@ _BENIGN = re.compile(
     re.IGNORECASE,
 )
 
+# 2026-08-18 audit — Jarvis's OWN spoken replies are written to this same log,
+# and natural language is full of the fault vocabulary above. Real example that
+# reached a health report: "...Rhea Ripley was unable to defend her..." matched
+# `unable to` and was ranked alongside genuine faults.
+#
+# Discriminator, chosen from the log rather than guessed. Of the 13 untagged
+# "concerning" lines in the whole log:
+#     real faults  19-93 chars   ("RuntimeError: microphone stream stalled...")
+#     model prose  476-567 chars ("Yeah, it's not looking great. Thunder...")
+# A 5x gap, so 200 sits comfortably between them. Code writes terse messages;
+# the model writes paragraphs.
+#
+# Tagged lines (`[outlook] ...`) are always faults regardless of length — only
+# UNTAGGED long lines are dropped, which is exactly the conversational case.
+# This is signal hygiene, not cosmetics: self_review reports a ranked top-N, so
+# a chatty false positive pushes a real fault off the end of the list.
+_TAGGED = re.compile(r"^\[[a-z0-9_.-]+\]", re.IGNORECASE)
+_MAX_UNTAGGED_FAULT_LEN = 200
+
 _SESSION_MARKER = "--- Jarvis started"
 _TS = re.compile(r"^\[(\d{4}-\d\d-\d\d)[ T](\d\d:\d\d:\d\d)[^\]]*\]\s*")
 
@@ -189,6 +208,14 @@ def scan(days: int = 7) -> dict:
             if _TB_NOISE.match(line):
                 continue
             if not _CONCERNING.search(line) or _BENIGN.search(line):
+                continue
+            # See _MAX_UNTAGGED_FAULT_LEN: drop untagged PROSE that merely
+            # borrowed the fault vocabulary (a spoken reply), while keeping
+            # untagged mechanical faults — "Socket exception: ...", bare
+            # exception lines, traceback frames — which are all short.
+            body = _TS.sub("", line).strip()
+            if (not _TAGGED.match(body)
+                    and len(body) > _MAX_UNTAGGED_FAULT_LEN):
                 continue
 
             concerning += 1
