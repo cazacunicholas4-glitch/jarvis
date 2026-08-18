@@ -251,6 +251,37 @@ def check_hardware(env: dict[str, str]) -> None:
     git = shutil.which("git")
     line(OK if git else WARN, "git", git or "absent - self-update is disabled")
 
+    # 2026-08-18: TLS cert expiry. The Tailscale/Let's Encrypt cert is 90 days
+    # and nothing renewed it for the first three months of its life, so it
+    # expired and the ONLY symptom was an iOS error on the user's phone — this
+    # machine logged nothing, because the failure is on the client side of the
+    # handshake. scripts/renew_tls_cert.ps1 now renews it daily; this line is
+    # the safety net for when that task is disabled, fails, or the machine was
+    # off for a month.
+    cert_file = (env.get("JARVIS_TLS_CERT_FILE") or "").strip()
+    if cert_file:
+        try:
+            import ssl as _ssl  # noqa: PLC0415
+            from datetime import datetime, timezone  # noqa: PLC0415
+
+            raw = Path(cert_file).read_bytes()
+            info = _ssl._ssl._test_decode_cert(cert_file)  # type: ignore[attr-defined]
+            not_after = datetime.strptime(
+                info["notAfter"], "%b %d %H:%M:%S %Y %Z"
+            ).replace(tzinfo=timezone.utc)
+            days = (not_after - datetime.now(timezone.utc)).days
+            if days < 0:
+                line(FAIL, "TLS certificate",
+                     f"EXPIRED {abs(days)}d ago - the phone PWA and the geofence "
+                     f"webhook will refuse to connect. Run: "
+                     f"pwsh -File scripts\renew_tls_cert.ps1 -Force")
+            elif days < 14:
+                line(WARN, "TLS certificate", f"expires in {days}d - renew soon")
+            else:
+                line(OK, "TLS certificate", f"valid for {days} more days")
+        except Exception as exc:  # noqa: BLE001 — a health check must not crash
+            line(WARN, "TLS certificate", f"could not read {cert_file}: {exc}")
+
     # 2026-08-18 audit: face auth is one of the TWO ways to clear a security
     # challenge, is lazily imported, and degrades SILENTLY when absent — and it
     # is deliberately not in requirements.txt (dlib needs MSVC Build Tools).

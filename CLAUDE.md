@@ -140,7 +140,20 @@ venv\Scripts\python.exe scripts\run_all_tests.py
 
 # Replicate durable runtime state offsite (see "State that is not in git")
 pwsh -File scripts\backup_state.ps1 -Push
+
+# TLS cert for the phone PWA / geofence webhook (Tailscale + Let's Encrypt).
+# A daily scheduled task (JarvisTlsCertRenew) runs this; these are the manual
+# forms. Renewal is a NO-OP until 30 days before expiry.
+pwsh -File scripts\renew_tls_cert.ps1            # renew if due
+pwsh -File scripts\renew_tls_cert.ps1 -Force     # renew now
+pwsh -File scripts\renew_tls_cert.ps1 -Install   # (re)register the daily task
 ```
+
+**The cert is 90 days and a running Jarvis loads it ONCE at startup.** So a
+renewal only takes effect after a restart, and an expiry produces *no symptom
+on this machine at all* — the failure is on the client side of the handshake,
+so the only sign is an error on the phone. Hence both a scheduled renewal and
+a `doctor.py` line reporting days-remaining.
 
 The gate folds in: `py_compile` over `main.py` + launchers + every `src/*.py`;
 an `import main` module-wiring smoke test; a structural JS check on the PWA
