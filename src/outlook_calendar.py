@@ -134,6 +134,22 @@ def _fetch_events_ical(start_utc: datetime, end_utc: datetime) -> tuple[list[Cal
         return (None, f"Outlook iCal returned HTTP {resp.status_code}, sir — "
                 f"check the URL in OUTLOOK_ICAL_URL is still valid.")
 
+    # 2026-08-18: a 200 with an EMPTY body is a transient server hiccup, not a
+    # misconfigured URL. Observed three times on 2026-08-12 — Outlook returned
+    # 200 + b'', which fell through to the parser and surfaced as
+    #   "ical parse failed: Found no components where exactly one is required: b''"
+    #   -> "I couldn't parse the Outlook iCal feed, sir — the URL might be
+    #      pointing at something else."
+    # The URL was fine the whole time. That message sends whoever reads it
+    # chasing a configuration problem that does not exist, which is worse than
+    # no message. Catch it here and say what actually happened; the caller
+    # already retries on the next poll.
+    if not resp.content or not resp.content.strip():
+        print("[outlook] ical returned HTTP 200 with an EMPTY body — "
+              "transient server hiccup, not a bad URL", file=sys.stderr)
+        return (None, "The Outlook calendar feed came back empty just now, "
+                "sir — I'll try again shortly.")
+
     # Lazy imports — keeps the module loadable even before
     # recurring-ical-events is installed (e.g. on a fresh checkout where
     # `pip install -r requirements.txt` hasn't been run yet).

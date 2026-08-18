@@ -253,8 +253,25 @@ def check_hardware(env: dict[str, str]) -> None:
 
     section("Model caches (downloaded on first use)")
     home = Path.home()
+    # 2026-08-16: openWakeWord ships hey_jarvis with the package and loads it
+    # from site-packages/openwakeword/resources/models — it only uses
+    # ~/.cache/openwakeword for models fetched later. Checking the cache alone
+    # reported "not yet downloaded" on a machine that had been waking to
+    # "Hey Jarvis" for months, which reads as a broken wake word. Check where
+    # the model actually lives, and fall back to the cache dir.
+    owv_paths = []
+    try:
+        import openwakeword as _oww  # noqa: PLC0415
+
+        owv_paths.append(Path(_oww.__file__).parent / "resources" / "models")
+    except Exception:  # noqa: BLE001 — doctor must never fail on an import
+        pass
+    owv_paths.append(home / ".cache" / "openwakeword")
+    owv = next((p for p in owv_paths if p.exists()), None)
+
+    line(OK if owv else INFO, "openWakeWord",
+         str(owv) if owv else "not yet downloaded")
     for label, path in [
-        ("openWakeWord", home / ".cache" / "openwakeword"),
         ("faster-whisper / HuggingFace", home / ".cache" / "huggingface"),
         ("YOLO weights", ROOT / "yolov8n.pt"),
     ]:

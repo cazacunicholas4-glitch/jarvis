@@ -264,6 +264,43 @@ finally:
     oc.ICAL_URL = _orig_url
 
 
+# --- empty-body guard (2026-08-18) ----------------------------------------
+# Outlook returned HTTP 200 with an empty body three times on 2026-08-12.
+# That fell through to the parser and surfaced as "I couldn't parse the
+# Outlook iCal feed, sir - the URL might be pointing at something else."
+# The URL was fine the whole time; that message sends whoever reads it
+# chasing a configuration problem that does not exist. An empty body is a
+# transient hiccup and the message must say so.
+print('')
+print('[group] HTTP 200 with an empty body')
+
+
+class _EmptyResp:
+    def __init__(self, content):
+        self.status_code = 200
+        self.content = content
+        self.text = ''
+
+
+_url_before = oc.ICAL_URL
+_get_before = oc.httpx.get
+try:
+    oc.ICAL_URL = 'https://example.invalid/cal.ics'
+    for _label, _body in [('empty', b''), ('blank', b'   ')]:
+        oc.httpx.get = (lambda *a, _b=_body, **k: _EmptyResp(_b))
+        _ev, _err = oc._fetch_events_ical(
+            datetime.now(timezone.utc),
+            datetime.now(timezone.utc) + timedelta(hours=1))
+        check(f'{_label} body -> no events, no crash', _ev is None)
+        check(f'{_label} body -> does NOT blame the URL',
+              'pointing at something else' not in _err
+              and 'OUTLOOK_ICAL_URL' not in _err)
+        check(f'{_label} body -> says empty, implies retry',
+              'empty' in _err.lower())
+finally:
+    oc.httpx.get = _get_before
+    oc.ICAL_URL = _url_before
+
 # --- summary --------------------------------------------------------------
 print(f"\n{_passed} passed, {_failed} failed")
 sys.exit(0 if _failed == 0 else 1)
