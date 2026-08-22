@@ -489,6 +489,26 @@ Neutral backlog; nothing here is committed. The standing discipline is
 - Growing the knowledge corpus. The hybrid retrieval is correct but the corpus is
   currently too small to demonstrate an aggregate win; size, not the algorithm,
   is the limiter.
+- 🚨 **`knowledge_remember` duplicates instead of updating — a real defect, found
+  2026-08-21.** It keys on a **slug derived from the remembered text**, so
+  re-teaching the same fact in different words writes a *new* file rather than
+  updating the existing one. And where slugs *do* collide, the handler appends a
+  timestamp and creates a second file instead of merging — so it duplicates on
+  **both** paths.
+  **Observed impact:** one fact (the four cats) had been stored **ten times** —
+  ten of fourteen entries in `jarvis-knowledge`, 43% of the corpus. The roll-ups
+  were not contradictory, just progressively enriched, with the last a strict
+  superset of all the others. `knowledge_search` returned ten hits where one
+  would do, and that lands in the context window, where space is the scarce
+  resource. **Consolidated by hand on 2026-08-21 (14 entries → 6), but the
+  cleanup will regrow until this is fixed.**
+  ⚖️ **The cheap fix is the right one: before writing, run the existing
+  `knowledge_search` on the new fact and update the top hit — or ask — instead of
+  creating a file.** That reuses machinery already present. **Do not reach for
+  embeddings-based semantic dedup**; at this corpus size that solves a research
+  problem this store does not have. *(Related: `knowledge.db` is a derived FTS5
+  cache outside the repo and still indexes the deleted entries — it needs
+  rebuilding after any hand-edit of the corpus.)*
 - Finer-grained per-verb tuning in `pc_shell` / `system_control` as real use
   cases prove out.
 - A custom multilingual wake-word model for non-English accents.
