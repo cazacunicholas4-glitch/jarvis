@@ -300,6 +300,7 @@ default-off flag for a headset/quiet-room scenario. Wake-word barge-in
 | Variable | Default | Read in | Purpose |
 |----------|---------|---------|---------|
 | `JARVIS_KNOWLEDGE_DIR` | `""` (→ `~/repos/jarvis-knowledge`) | knowledge.py | Knowledge-base corpus dir. |
+| `JARVIS_KNOWLEDGE_DB` | `""` (→ `%LOCALAPPDATA%\Jarvis\knowledge.db`) | knowledge.py | Derived FTS5 index path. **Tests MUST set this alongside `JARVIS_KNOWLEDGE_DIR`** — overriding the corpus alone is a half-isolation, since `knowledge_remember` ends in `reindex()`, which writes the index. |
 | `DIAGNOSTICS_COLLECTOR_PATH` | `""` (→ sibling repo) | diagnostics_collector.py | Path to the windows-diagnostics script. |
 
 ## Internal (set BY Jarvis, not by the user)

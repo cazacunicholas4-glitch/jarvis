@@ -202,8 +202,19 @@ def _db_path() -> Path:
     (sessions, summaries) under %LOCALAPPDATA%\\Jarvis — co-located because
     it's a rebuildable cache, not authored data. default_base_dir() is the
     same helper src/memory.py uses, so the whole runtime state tree stays in
-    one place."""
-    return default_base_dir() / "knowledge.db"
+    one place.
+
+    JARVIS_KNOWLEDGE_DB overrides it, and that override is NOT a convenience —
+    it closes a real leak (found 2026-08-21). `_corpus_dir()` already honored
+    JARVIS_KNOWLEDGE_DIR, so tests pointed the CORPUS at a temp dir and
+    reasonably assumed they were isolated. They were not: `knowledge_remember`
+    ends by calling `reindex()`, and reindex wrote to THIS path — the real one.
+    So every run of the test suite rebuilt the user's production index from a
+    temp corpus containing one fixture, silently destroying the real one.
+    Overriding the corpus without the index is a half-isolation that looks
+    complete. Override BOTH, always."""
+    raw = os.getenv("JARVIS_KNOWLEDGE_DB", "").strip()
+    return Path(raw).expanduser() if raw else default_base_dir() / "knowledge.db"
 
 
 # --- Ingestion -------------------------------------------------------------
@@ -637,6 +648,85 @@ def _slugify(text: str, max_len: int = 48) -> str:
     return slug or "note"
 
 
+# --- Duplicate detection (M60.x fix, 2026-08-21) ---------------------------
+# THE BUG: remember_fact() keyed the filename on a slug of the fact TEXT, so
+# re-teaching the same fact in different words produced a NEW file; and where
+# slugs *did* collide, the guard appended a timestamp and produced a new file
+# too. It duplicated on BOTH paths. One fact — the user's four cats — ended up
+# stored ten times, 10 of 14 entries in the corpus. knowledge_search is FTS5
+# over that corpus, so a query returned ten hits where one would do, and those
+# land in the context window where space is the scarce resource.
+#
+# CONTAINMENT, not Jaccard. Restatements ACCRETE detail: "My four cats are A,
+# B, C, D" vs the same sentence plus each cat's colour and sex. Jaccard scores
+# that 0.32 because the enriched version has far more tokens, and would miss
+# it. Containment over the SHORTER token set asks the right question — "is this
+# largely a restatement of something I already hold?" — and scores it 1.00.
+#
+# The dangerous failure here is NOT a duplicate, it is silently destroying a
+# genuinely distinct fact. So: the threshold is deliberately high, and a match
+# APPENDS to the existing note rather than overwriting it. Nothing is ever
+# lost; the worst case is a slightly redundant line inside one file instead of
+# a second file. Verified against both directions before shipping —
+# "Osiris is female" vs "Osiris likes tuna" scores 0.50 and stays separate.
+_DEDUP_THRESHOLD = 0.70
+
+# Function words carry no topical signal and would inflate every score.
+_DEDUP_STOPWORDS = frozenset({
+    "the", "a", "an", "and", "are", "is", "was", "were", "my", "our", "his",
+    "her", "their", "of", "to", "in", "on", "for", "with", "that", "this",
+    "it", "its", "user", "users",
+})
+
+
+def _content_tokens(text: str) -> set[str]:
+    """Topical tokens only: >=3 chars, minus function words. Set semantics —
+    repetition should not change whether two facts are the same fact."""
+    return {
+        t for t in _TOKEN_RE.findall(text.lower())
+        if len(t) >= 3 and t not in _DEDUP_STOPWORDS
+    }
+
+
+def _fact_body(path: Path) -> str:
+    """The fact text of an existing note, minus the `# heading` and the
+    `_Taught by voice…_` provenance line. Best-effort: on any read error
+    returns '', which scores 0 and is treated as 'not a duplicate' — failing
+    toward writing a new file, never toward discarding one."""
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    lines = [
+        ln for ln in raw.splitlines()
+        if not ln.startswith("#") and not ln.strip().startswith("_Taught by")
+    ]
+    return " ".join(lines).strip()
+
+
+def _find_similar_fact(corpus: Path, fact: str) -> tuple[Path, float] | None:
+    """Highest-containment existing note at or above _DEDUP_THRESHOLD, else
+    None. Reads the corpus directly rather than querying the FTS index: this
+    must work before the first reindex, and on a corpus this size a linear
+    scan is far cheaper than the reasoning about staleness would be."""
+    new_tokens = _content_tokens(fact)
+    if not new_tokens:
+        return None
+    best: tuple[Path, float] | None = None
+    try:
+        candidates = sorted(corpus.glob("*.md"))
+    except OSError:
+        return None
+    for path in candidates:
+        existing = _content_tokens(_fact_body(path))
+        if not existing:
+            continue
+        score = len(new_tokens & existing) / min(len(new_tokens), len(existing))
+        if score >= _DEDUP_THRESHOLD and (best is None or score > best[1]):
+            best = (path, score)
+    return best
+
+
 def remember_fact(fact: str) -> str:
     """Append one taught fact to the corpus as its own dated Markdown file,
     then reindex so it's immediately searchable. Returns a voice-ready
@@ -646,6 +736,10 @@ def remember_fact(fact: str) -> str:
     be deleted cleanly, git diffs stay readable, and reindex stays naturally
     incremental-friendly later — the same reasoning behind the Claude memory
     system's one-file-per-memory layout.
+
+    A fact that restates one already held is APPENDED to that note instead of
+    becoming a new file — see the duplicate-detection block above for why, and
+    for why it appends rather than replaces.
     """
     fact = (fact or "").strip()
     if not fact:
@@ -659,6 +753,38 @@ def remember_fact(fact: str) -> str:
         return "I couldn't reach the knowledge folder to save that, sir."
 
     now = datetime.now()
+
+    # Restatement of something already held? Fold it in rather than duplicate.
+    similar = _find_similar_fact(corpus, fact)
+    if similar is not None:
+        path, score = similar
+        try:
+            prior = path.read_text(encoding="utf-8").rstrip("\n")
+            if _content_tokens(fact) <= _content_tokens(_fact_body(path)):
+                # Already fully covered — record nothing, say so honestly.
+                return "I already had that one filed, sir."
+            path.write_text(
+                f"{prior}\n\n_Updated {now.strftime('%Y-%m-%d %H:%M')}._\n\n"
+                f"{fact}\n",
+                encoding="utf-8",
+            )
+            print(
+                f"[knowledge] merged into {path.name} (containment {score:.2f})",
+                file=sys.stderr,
+            )
+            result = reindex()
+            if result.ok:
+                return "Noted, sir — I've added that to what I already had on it."
+            return (
+                "I've added that to your existing note, sir, though the index "
+                "didn't refresh — ask me to update my knowledge."
+            )
+        except OSError as exc:
+            # Fall through to writing a new file. A redundant note is a far
+            # better outcome than a dropped one.
+            print(f"[knowledge] merge failed, writing new file: {exc}",
+                  file=sys.stderr)
+
     stamp = now.strftime("%Y%m%d-%H%M%S")
     fname = f"{now.strftime('%Y-%m-%d')}-{_slugify(fact)}.md"
     path = corpus / fname

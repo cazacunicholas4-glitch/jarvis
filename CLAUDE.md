@@ -408,6 +408,31 @@ The project is feature-complete for its intended use and running in production
 as a supervised always-on process. ~101 milestones; the regression gate is at 58
 suites and green.
 
+**Fixed 2026-08-21 — two knowledge-layer defects, both found by auditing the
+corpus rather than by any test:**
+
+- 🚨 **The test suite was destroying the production knowledge index.**
+  `_corpus_dir()` honored `JARVIS_KNOWLEDGE_DIR`, so `knowledge_remember_test`
+  pointed the corpus at a temp dir and looked isolated. It was not:
+  `remember_fact()` ends in `reindex()`, and `_db_path()` honored **no**
+  override, so every gate run rebuilt the user's real `knowledge.db` from a
+  temp corpus holding one fixture. Found because the live index contained
+  exactly one entry, named after the test's fixture pets. **Overriding the
+  corpus without the index is a half-isolation that looks complete.** Fixed by
+  adding `JARVIS_KNOWLEDGE_DB`; the test now sets both, and asserts the real
+  index is byte-identical afterwards.
+- 🚨 **`knowledge_remember` duplicated instead of updating.** The filename was a
+  slug of the fact *text*, so a reworded fact wrote a new file — and where slugs
+  *did* collide, the guard appended a timestamp and wrote a new file anyway. It
+  duplicated on **both** paths. One fact (the four cats) had been stored **ten
+  times**, 10 of 14 corpus entries. Now a restatement is detected by **token
+  containment over the shorter fact** (not Jaccard — restatements *accrete*
+  detail, and Jaccard scores the real case 0.32 versus containment's 1.00) and
+  **appended** to the existing note. Threshold 0.70, deliberately high: the
+  dangerous failure is not a duplicate, it is silently destroying a distinct
+  fact. Verified in both directions — *"Osiris is female"* vs *"Osiris likes
+  tuna"* scores 0.50 and stays separate.
+
 **Working:**
 - The core loop: wake word → local STT (EN/ES auto-detect) → streaming,
   prompt-cached, agentic Claude call → streaming TTS, with a tray icon, a
@@ -489,26 +514,6 @@ Neutral backlog; nothing here is committed. The standing discipline is
 - Growing the knowledge corpus. The hybrid retrieval is correct but the corpus is
   currently too small to demonstrate an aggregate win; size, not the algorithm,
   is the limiter.
-- 🚨 **`knowledge_remember` duplicates instead of updating — a real defect, found
-  2026-08-21.** It keys on a **slug derived from the remembered text**, so
-  re-teaching the same fact in different words writes a *new* file rather than
-  updating the existing one. And where slugs *do* collide, the handler appends a
-  timestamp and creates a second file instead of merging — so it duplicates on
-  **both** paths.
-  **Observed impact:** one fact (the four cats) had been stored **ten times** —
-  ten of fourteen entries in `jarvis-knowledge`, 43% of the corpus. The roll-ups
-  were not contradictory, just progressively enriched, with the last a strict
-  superset of all the others. `knowledge_search` returned ten hits where one
-  would do, and that lands in the context window, where space is the scarce
-  resource. **Consolidated by hand on 2026-08-21 (14 entries → 6), but the
-  cleanup will regrow until this is fixed.**
-  ⚖️ **The cheap fix is the right one: before writing, run the existing
-  `knowledge_search` on the new fact and update the top hit — or ask — instead of
-  creating a file.** That reuses machinery already present. **Do not reach for
-  embeddings-based semantic dedup**; at this corpus size that solves a research
-  problem this store does not have. *(Related: `knowledge.db` is a derived FTS5
-  cache outside the repo and still indexes the deleted entries — it needs
-  rebuilding after any hand-edit of the corpus.)*
 - Finer-grained per-verb tuning in `pc_shell` / `system_control` as real use
   cases prove out.
 - A custom multilingual wake-word model for non-English accents.
