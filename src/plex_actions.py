@@ -38,7 +38,6 @@ HTTP errors, missing parameters all become readable strings. Never raises.
 from __future__ import annotations
 
 import os
-from typing import Callable
 
 from src.plex_laptop import PlexLaptopClient, _ps_encoded
 

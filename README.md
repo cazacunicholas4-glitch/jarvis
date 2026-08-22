@@ -66,9 +66,9 @@ transcription server, the calendar feed — can fail without taking down the lis
 loop. Degrade and log; never crash the thing the user is talking to.
 
 **A regression gate, because a bug a test would have caught earns a test.**
-`scripts/run_all_tests.py` runs 54 gates — syntax, module wiring, a JS structural
-check, and 51 test suites totalling ~1,300 assertions — and must be green before
-anything ships. CI runs the *same* command on every push; the five gates that need
+`scripts/run_all_tests.py` runs 58 gates — syntax, module wiring, a JS structural
+check, and 55 test suites totalling ~1,370 assertions — and must be green before
+anything ships. CI runs the *same* command on every push; the nine gates that need
 a native ML toolchain or Windows SAPI are skipped **by name**, never silently
 folded into the pass count.
 
@@ -149,7 +149,7 @@ tests/*_test.py         the regression suites — everything here runs in the ga
 scripts/                operational entry points + hand-run probes; never collected
 docs/SETUP.md           deployment walkthrough
 docs/MILESTONES.md      engineering log — index + "start here"
-docs/milestones/        the log itself, 107 entries across 5 parts
+docs/milestones/        the log itself, 108 entries across 5 parts
 ```
 
 ## License

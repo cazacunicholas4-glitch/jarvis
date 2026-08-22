@@ -32,7 +32,6 @@ import os
 import sys
 import time
 import tkinter as tk
-from typing import Callable
 
 from src import reactor
 from src.tray import State

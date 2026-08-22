@@ -39,7 +39,6 @@ all become voice-friendly strings, never an exception into the listen loop.
 from __future__ import annotations
 
 import re
-import sys
 from datetime import datetime, timezone
 from functools import partial
 

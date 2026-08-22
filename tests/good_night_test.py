@@ -23,7 +23,6 @@ call is covered by the M55 briefing's own live path).
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile

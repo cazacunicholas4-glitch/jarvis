@@ -11,8 +11,10 @@ name: gate
 # reclassifies "this suite needs torch/ctranslate2/SAPI" as SKIP (printed by
 # name) instead of FAIL. Anything else is still a failure.
 #
-# Coverage: 40 of 45 gates, ~55 s. The 5 skipped gates need faster-whisper or
-# the Windows SAPI bindings and are covered by the full local run.
+# Coverage: 49 of 58 gates, 9 skipped. The skipped ones need faster-whisper or
+# the Windows SAPI bindings (pyttsx3) and are covered by the full local run.
+# The gate PRINTS every skip by name, so that list is authoritative at run
+# time — these totals are a snapshot and will drift as suites are added.
 
 on:
   push:

@@ -17,7 +17,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src import sound_detector as sd  # noqa: E402
 from src.sound_detector import (  # noqa: E402
     WHAT_DID_YOU_HEAR_TOOL,
     _ago,

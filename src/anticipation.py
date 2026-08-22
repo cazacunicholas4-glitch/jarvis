@@ -45,7 +45,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 from collections import deque
 from datetime import datetime
 from typing import Callable

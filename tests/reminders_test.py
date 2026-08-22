@@ -40,7 +40,7 @@ from src.reminders import (  # noqa: E402 — must follow the env redirect
     SET_REMINDER_TOOL,
     add, cancel, list_pending, pop_due,
     execute_set_reminder, execute_cancel_reminder, execute_list_reminders,
-    _fire_one, _push, _next_occurrence, _resolve_explicit_fire,
+    _fire_one, _push, _resolve_explicit_fire,
     _store_path, _validate_repeat, _ISO,
 )
 import threading as _threading

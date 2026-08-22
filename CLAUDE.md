@@ -157,7 +157,7 @@ a `doctor.py` line reporting days-remaining.
 
 The gate folds in: `py_compile` over `main.py` + launchers + every `src/*.py`;
 an `import main` module-wiring smoke test; a structural JS check on the PWA
-(`scripts/js_parse_gate.py`); and every `tests/*_test.py` suite (51 at last
+(`scripts/js_parse_gate.py`); and every `tests/*_test.py` suite (55 at last
 count). It must exit 0. If the venv is unavailable, the minimum fallback is
 `python -m py_compile main.py jarvis.pyw src/*.py`.
 
@@ -311,6 +311,14 @@ maintainable. Follow them.
   floor was the real discriminator; a memory leak was attributed to the ML model
   for two milestones before a harness proved it was the video-capture handle).
   Correlate a score with its *input*, never tune on scores alone.
+  **Before tuning a threshold, prove one EXISTS (2026-08-22).** Label the
+  positives and negatives and check `min(POS) > max(NEG)`. The
+  `knowledge_remember` dedup metric scored 0.750 vs 1.000 — it *overlapped*,
+  so no threshold could have worked and picking a higher number was motion,
+  not a fix. A metric that cannot separate a labelled set is unusable, not
+  mis-tuned. **And if a fix also MIGRATES data, re-validate after the
+  migration** — that same fix shipped a validation case its own corpus
+  consolidation had silently invalidated in the same commit.
 - **Cooperative gates have two sides.** Heavy background CPU work (vision,
   acoustic inference) yields while audio is playing, via a shared counted event.
   A gate is only as complete as (a) every *consumer* that opts into yielding and
@@ -336,7 +344,11 @@ maintainable. Follow them.
   temp names, Windows `os.replace` retry. The target machine has no UPS, so an
   unclean power loss is a realistic failure mode, not a theoretical one.
 - **A bug that a test would have caught earns a test.** The regression gate grew
-  from a handful of suites to 51 exactly this way.
+  from a handful of suites to 55 exactly this way. **Check the FIXTURE is big
+  enough to express the bug**: the dedup suite already had a
+  "distinct facts stay separate" case and it passed for the wrong reason —
+  its fixture corpus held one short note, and the defect only appears against
+  a large one. A green negative case over a toy fixture asserts nothing.
 - **Fix the failure mode, not the instance.** When a fix lands on a component,
   find its peers and ask whether they share the defect. M99 cost a milestone to
   a `latency="high"` + throttled-callback-log fix that was applied to the
@@ -406,7 +418,49 @@ requirement: one intended user is not an English speaker.
 ## Current Status
 The project is feature-complete for its intended use and running in production
 as a supervised always-on process. ~101 milestones; the regression gate is at 58
-suites and green.
+gates (55 test suites + 3 structural) and green.
+
+**Fixed 2026-08-22 — consolidation pass #6 ([`docs/CODE_AUDIT.md`](docs/CODE_AUDIT.md)).
+The headline finding was in code written the previous evening — the dedup fix
+immediately below. That is now twice in a row that the top defect of a pass was
+in the newest code in the tree; treat "written this week" as the highest-yield
+place to look.**
+
+- 🚨 **`knowledge_remember` silently discarded new facts and said it had them.**
+  The 2026-08-21 dedup fix scored with containment over the *smaller* token set,
+  `|A ∩ B| / min(|A|,|B|)`. That denominator collapses to the new fact whenever
+  the new fact is short, so the question became "do all three of my words appear
+  ANYWHERE in that 196-token note?" — nearly always yes. **Large notes became
+  attractors.** Proven end-to-end on a copy of the real corpus: *"The Plex server
+  is broken."* matched `homelab-and-runbooks.md` at 1.00 (it contains "Plex Media
+  Server" and "broken WMI" in unrelated sentences), was judged fully covered, and
+  **nothing reached disk** — with the reply "I already had that one filed, sir."
+  A write path that drops the write and reports success is the worst shape a bug
+  can take: there is no symptom to report.
+  **The metric was replaced by measurement, not argument.** Scored 5 labelled
+  restatements against 10 labelled distinct facts on the real corpus; a metric is
+  only usable if `min(POS) > max(NEG)`. The shipped one gave 0.750 vs **1.000** —
+  it *overlapped*, so no threshold existed at all; it was unusable, not
+  mis-tuned. **Ochiai** (set cosine, `|A ∩ B| / sqrt(|A|·|B|)`) separated widest
+  (0.471 vs 0.279) and is now the metric, cut at **0.40**. Routing went 5-of-10
+  wrong → 10-of-10 right.
+  **Two lessons worth more than the fix.** (1) The old note below claimed
+  *"Osiris is female"* scores 0.50 and stays separate — true when written, and
+  **invalidated by its own commit's data migration**, which consolidated ten cat
+  notes into one holding both tokens, taking it to 1.00. If a fix also migrates
+  data, re-validate *after* the migration. (2) The suite already had a
+  "distinct fact must not be swallowed" case and it **passed for the wrong
+  reason** — its fixture corpus held one *short* note, and the bug only appears
+  against a *large* one.
+- 🚨 **The corpus was the one durable store not written atomically.** Seven
+  modules use `src/atomic_io.py`; `knowledge.py` — which writes the only
+  user-*authored* data in the tree — used plain `write_text`. The merge path is a
+  read-modify-write of a whole note, so a torn write destroys every fact already
+  accreted into it. Both writes are now atomic.
+- Also: three more direct-but-transitive imports declared (`torch`, `icalendar`,
+  `av` — pass #5 fixed `comtypes` and never checked its peers), `plex_mcp`
+  tool population made idempotent, 13 unused imports and one orphaned helper
+  removed, and six stale counts corrected across `README`/`CLAUDE.md`/CI.
 
 **Fixed 2026-08-21 — two knowledge-layer defects, both found by auditing the
 corpus rather than by any test:**
@@ -425,13 +479,10 @@ corpus rather than by any test:**
   slug of the fact *text*, so a reworded fact wrote a new file — and where slugs
   *did* collide, the guard appended a timestamp and wrote a new file anyway. It
   duplicated on **both** paths. One fact (the four cats) had been stored **ten
-  times**, 10 of 14 corpus entries. Now a restatement is detected by **token
-  containment over the shorter fact** (not Jaccard — restatements *accrete*
-  detail, and Jaccard scores the real case 0.32 versus containment's 1.00) and
-  **appended** to the existing note. Threshold 0.70, deliberately high: the
-  dangerous failure is not a duplicate, it is silently destroying a distinct
-  fact. Verified in both directions — *"Osiris is female"* vs *"Osiris likes
-  tuna"* scores 0.50 and stays separate.
+  times**, 10 of 14 corpus entries. A restatement is now detected by set
+  similarity and **appended** to the existing note rather than duplicating it.
+  *(The metric and threshold this entry originally described were replaced the
+  next day — see the 2026-08-22 block above for why they could not work.)*
 
 **Working:**
 - The core loop: wake word → local STT (EN/ES auto-detect) → streaming,
@@ -518,4 +569,13 @@ Neutral backlog; nothing here is committed. The standing discipline is
   cases prove out.
 - A custom multilingual wake-word model for non-English accents.
 - Extracting the text/voice intent dispatch (a real hot-path refactor; wants a
-  test at the right level first).
+  test at the right level first). **Measured 2026-08-22:** `listen_loop()` is
+  **945 lines taking 15 parameters**, and its body is largely one 598-line
+  closure (`_voice_session_loop`) capturing **11 of them** plus a `nonlocal`.
+  That capture is why it resists extraction — it needs a small state object
+  (a `VoiceSession` holding the captured collaborators), not a longer
+  parameter list. This is the sharpest structural item in the tree, and a
+  worse smell than any large *file*: by contrast `security.py`'s 1,714 lines
+  are 36 methods with the largest at 181, which is a big class, not a god
+  function. Deferred twice now (passes #5 and #6) for the same reason — hot
+  path, no correctness payoff, needs its seam tested first.

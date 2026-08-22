@@ -40,7 +40,6 @@ import threading
 import urllib.parse
 from typing import Callable
 
-import websockets
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.datastructures import Headers
 from websockets.http11 import Request, Response

@@ -45,6 +45,7 @@ voice-friendly message). A knowledge-base failure must never break a turn.
 
 from __future__ import annotations
 
+import math
 import os
 import re
 import sqlite3
@@ -54,6 +55,7 @@ from datetime import datetime
 from pathlib import Path
 
 from src import embeddings as _embeddings
+from src.atomic_io import atomic_write_text
 from src.memory import default_base_dir
 
 
@@ -648,7 +650,7 @@ def _slugify(text: str, max_len: int = 48) -> str:
     return slug or "note"
 
 
-# --- Duplicate detection (M60.x fix, 2026-08-21) ---------------------------
+# --- Duplicate detection (M60.x, 2026-08-21; metric revised 2026-08-22) ----
 # THE BUG: remember_fact() keyed the filename on a slug of the fact TEXT, so
 # re-teaching the same fact in different words produced a NEW file; and where
 # slugs *did* collide, the guard appended a timestamp and produced a new file
@@ -657,19 +659,60 @@ def _slugify(text: str, max_len: int = 48) -> str:
 # over that corpus, so a query returned ten hits where one would do, and those
 # land in the context window where space is the scarce resource.
 #
-# CONTAINMENT, not Jaccard. Restatements ACCRETE detail: "My four cats are A,
-# B, C, D" vs the same sentence plus each cat's colour and sex. Jaccard scores
-# that 0.32 because the enriched version has far more tokens, and would miss
-# it. Containment over the SHORTER token set asks the right question — "is this
-# largely a restatement of something I already hold?" — and scores it 1.00.
+# THE SECOND BUG (2026-08-22): the first fix scored with CONTAINMENT over the
+# smaller token set — |A n B| / min(|A|,|B|). That denominator collapses to the
+# NEW fact whenever the new fact is short, so the question silently became "do
+# all three of my words appear ANYWHERE in that 196-token note?" — and for a
+# large note the answer is almost always yes. Large notes became attractors:
+# every short fact taught by voice scored 1.00 against the biggest file in the
+# corpus.
 #
-# The dangerous failure here is NOT a duplicate, it is silently destroying a
-# genuinely distinct fact. So: the threshold is deliberately high, and a match
-# APPENDS to the existing note rather than overwriting it. Nothing is ever
-# lost; the worst case is a slightly redundant line inside one file instead of
-# a second file. Verified against both directions before shipping —
-# "Osiris is female" vs "Osiris likes tuna" scores 0.50 and stays separate.
-_DEDUP_THRESHOLD = 0.70
+# That is a DATA-LOSS bug, not a filing annoyance. Measured end-to-end against
+# the real corpus: "The Plex server is broken." — a genuinely new and
+# operationally important fact — scored 1.00 against homelab-and-runbooks.md
+# (which contains "Plex", "Media Server" and "broken WMI" in unrelated
+# sentences), was judged a token-subset of it, and so was DISCARDED with the
+# confident reply "I already had that one filed, sir." Nothing reached disk.
+# A write path that drops the write and reports success is the worst shape a
+# bug can take: the user has no symptom to report.
+#
+# Note the first fix's own validation was invalidated by its own data
+# migration. It shipped the claim that "Osiris is female" scores 0.50 and
+# stays separate — true against the PRE-consolidation corpus, where no note
+# held both tokens. The same commit consolidated ten cat notes into one that
+# holds both, taking that case to 1.00.
+#
+# THE METRIC WAS CHOSEN BY MEASUREMENT, not by argument — the project rule is
+# "measure before you tune", and the previous threshold was tuned on scores
+# alone. Labelled 5 true restatements and 10 distinct facts against the real
+# corpus and scored every candidate metric. A metric is usable only if
+# min(POS) > max(NEG) — i.e. SOME threshold separates them:
+#
+#   metric                    min(POS)   max(NEG)   verdict
+#   containment/min (old)        0.750      1.000   OVERLAPS — unusable at ANY
+#                                                   threshold; 5 distinct facts
+#                                                   score a perfect 1.00
+#   jaccard                      0.222      0.100   separable, gap 0.12
+#   dice                         0.364      0.182   separable, gap 0.18
+#   ochiai (cosine on sets)      0.471      0.279   separable, gap 0.19  <-- best
+#
+# So the old metric was not mis-tuned, it was unusable: no threshold existed.
+# (Jaccard, which the first fix rejected, was in fact separable — it was
+# rejected for scoring 0.32 against a 0.70 cut chosen for a different metric.)
+#
+# OCHIAI = |A n B| / sqrt(|A| * |B|) — the geometric mean of the two
+# containments. It still asks "is this largely a restatement?", but a fact can
+# no longer claim a note merely by being short: being fully contained in a note
+# 60x its size now scores ~0.12, not 1.00. It is symmetric, so teaching the
+# long version first and the short version second behaves the same as the
+# reverse.
+#
+# The cut sits at 0.40 — above the 0.375 midpoint of the measured gap, biased
+# deliberately toward "write a new file". The dangerous failure is NOT a
+# duplicate, it is silently destroying (or refusing to record) a distinct fact,
+# so the threshold leans toward redundancy. A match APPENDS rather than
+# overwrites, for the same reason: nothing is ever lost.
+_DEDUP_THRESHOLD = 0.40
 
 # Function words carry no topical signal and would inflate every score.
 _DEDUP_STOPWORDS = frozenset({
@@ -705,7 +748,7 @@ def _fact_body(path: Path) -> str:
 
 
 def _find_similar_fact(corpus: Path, fact: str) -> tuple[Path, float] | None:
-    """Highest-containment existing note at or above _DEDUP_THRESHOLD, else
+    """Highest-scoring existing note at or above _DEDUP_THRESHOLD, else
     None. Reads the corpus directly rather than querying the FTS index: this
     must work before the first reindex, and on a corpus this size a linear
     scan is far cheaper than the reasoning about staleness would be."""
@@ -721,7 +764,8 @@ def _find_similar_fact(corpus: Path, fact: str) -> tuple[Path, float] | None:
         existing = _content_tokens(_fact_body(path))
         if not existing:
             continue
-        score = len(new_tokens & existing) / min(len(new_tokens), len(existing))
+        # Ochiai / set cosine — see the block above for why NOT min().
+        score = len(new_tokens & existing) / math.sqrt(len(new_tokens) * len(existing))
         if score >= _DEDUP_THRESHOLD and (best is None or score > best[1]):
             best = (path, score)
     return best
@@ -763,13 +807,19 @@ def remember_fact(fact: str) -> str:
             if _content_tokens(fact) <= _content_tokens(_fact_body(path)):
                 # Already fully covered — record nothing, say so honestly.
                 return "I already had that one filed, sir."
-            path.write_text(
+            # Durable + atomic — see src/atomic_io.py. This is a
+            # read-modify-write of the WHOLE note, so a torn write here
+            # would destroy every fact already accreted into it, not just
+            # the new one. The corpus is the only user-AUTHORED data in
+            # the tree and this machine has no UPS; a half-written note is
+            # a realistic failure mode, not a theoretical one.
+            atomic_write_text(
+                path,
                 f"{prior}\n\n_Updated {now.strftime('%Y-%m-%d %H:%M')}._\n\n"
                 f"{fact}\n",
-                encoding="utf-8",
             )
             print(
-                f"[knowledge] merged into {path.name} (containment {score:.2f})",
+                f"[knowledge] merged into {path.name} (similarity {score:.2f})",
                 file=sys.stderr,
             )
             result = reindex()
@@ -798,7 +848,8 @@ def remember_fact(fact: str) -> str:
         f"{fact}\n"
     )
     try:
-        path.write_text(body, encoding="utf-8")
+        # Durable + atomic — see src/atomic_io.py, and the merge path above.
+        atomic_write_text(path, body)
     except OSError as exc:
         print(f"[knowledge] cannot write fact file: {exc}", file=sys.stderr)
         return "I couldn't save that to the knowledge folder, sir."

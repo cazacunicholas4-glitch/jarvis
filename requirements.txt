@@ -138,6 +138,36 @@ howlongtobeatpy>=1.0.21
 # at runtime rather than at install time. Pure Python, no build step.
 comtypes>=1.2
 
+# ── The rest of the direct-but-transitive imports ───────────────────────────
+# Same reasoning as comtypes above, applied to its peers. A 2026-08-22 audit
+# found comtypes was one of FOUR modules imported directly while declared only
+# transitively — the earlier pass fixed the one it found and did not check the
+# others, which is the failure mode this project's own rule warns about ("fix
+# the failure mode, not the instance"). All three below are satisfied today by
+# a transitive edge; if that edge ever moves, the feature breaks at RUNTIME
+# instead of at install time, on a machine that has already been rebuilt.
+#
+# Each is imported lazily, inside the function that needs it, so an absent
+# package degrades rather than crashing at startup — but "degrades" here means
+# silently losing a capability, which is exactly what a declaration prevents.
+
+# torch — imported directly by src/security.py and src/sound_detector.py to
+# pin inference to CPU and cap thread counts (the armed-mode CPU budget, M99).
+# Already pulled by ultralytics; declared here because the two call sites
+# depend on torch's own API, not on ultralytics'.
+torch>=2.0
+
+# icalendar — imported directly by src/outlook_calendar.py to parse the
+# published .ics body. Already pulled by recurring-ical-events above.
+icalendar>=5.0
+
+# av (PyAV) — imported directly by src/speech_to_text.py and
+# src/remote_console.py to decode the browser's WebM/Opus push-to-talk audio
+# before it reaches Whisper. Already pulled by faster-whisper. Without it the
+# phone PWA's voice path fails while its text path keeps working, which is
+# precisely the kind of half-broken remote client nobody reports.
+av>=11.0
+
 # ── OPTIONAL: enrolled-face authentication (M39) ────────────────────────────
 # DELIBERATELY COMMENTED OUT, not forgotten. `face_recognition` needs dlib,
 # which compiles C++ and therefore requires MSVC Build Tools on Windows —

@@ -1,3 +1,245 @@
+# Jarvis — Code Audit (consolidation pass #6)
+
+**Date:** 2026-08-22
+**Scope:** Full end-to-end pass, user-requested ("go through this project from end
+to end and make sure everything is clean, structured and organized... see where
+improvements can be made in the python code. Make sure to double check your
+work"). Four days after pass #5, and triggered by the same condition that
+justified pass #5's own top finding: **the newest code is where the bugs are.**
+Pass #5 found its #1 defect in code written two days earlier; this pass found its
+#1 defect in code written *the previous evening* — the dedup fix from pass #5's
+own follow-up commit (`fd36cc1`). No new product features.
+**Method:** LOG REVIEW FIRST per the standing rule — the full 2026-06-28 →
+2026-08-21 `jarvis.log` (3.1 MB, 131 restarts) before any code was read. Then
+AST-based structural scans, then **empirical probes against the real corpus**
+rather than reasoning about branches: the Tier-1 finding below was proven by
+running the actual write path end-to-end on an isolated copy of production data
+and watching the fact fail to reach disk.
+**Baseline:** 58/58 gates green, 1,365 assertions. **After:** 58/58 green, 1,373
+assertions (`knowledge_remember` 18 → 26).
+
+Severity legend: 🔴 confirmed bug · 🟡 risk/latent · 🟢 polish.
+
+---
+
+## The log review (found nothing new — which is itself the result)
+
+Two months of production logs, 131 restarts, **4 tracebacks total** — all four
+already-diagnosed incidents (the M100 announcer death, and two M65 mic-stall
+supervisor catches that *recovered on their own*, which is the supervisor doing
+exactly its job). Everything else is transient network on a flaky uplink, and
+every fail-soft path held.
+
+Both recently-fixed classes were checked for recurrence **by date**, not by
+presence: the empty-iCal-body misdiagnosis (pass #5, finding 2) has **zero**
+occurrences after its 2026-08-18 fix, and the weather give-ups are all from
+June/early July. The fixes are holding.
+
+## Tier 1 — correctness
+
+### 🔴 1. `knowledge_remember` silently discarded new facts and reported success
+
+The dedup fix shipped the previous evening scored candidates with **containment
+over the smaller token set**, `|A ∩ B| / min(|A|,|B|)`. That denominator
+collapses to the *new fact* whenever the new fact is short, so the question
+silently became "do all three of my words appear ANYWHERE in that 196-token
+note?" — and for a large note the answer is nearly always yes. **Large notes
+became attractors**: every short fact taught by voice scored 1.00 against the
+biggest file in the corpus.
+
+Proven end-to-end against an isolated copy of the real corpus:
+
+```
+FACT   'The Plex server is broken.'  (3 tokens)
+match  homelab-and-runbooks.md @ 1.00  [judged fully covered]
+reply  'I already had that one filed, sir.'
+DISK   new=NONE  modified=NONE
+==>    fact actually stored anywhere?  *** NO — LOST ***
+```
+
+`{plex, server, broken}` all occur in that note — in "Plex Media Server" and
+"broken WMI provider", unrelated sentences. The corpus nowhere says the server
+is broken. **A write path that drops the write and reports success is the worst
+shape a bug can take**: the user has no symptom to report, and the loss is
+silent and permanent.
+
+Note the first fix's validation was **invalidated by its own data migration**.
+It shipped the claim that *"Osiris is female"* scores 0.50 and stays separate —
+true against the *pre*-consolidation corpus, where no note held both tokens. The
+same commit consolidated ten cat notes into one that holds both, taking that
+case to 1.00. The claim was true when written and false when committed.
+
+**The replacement metric was chosen by measurement, not argument** — the project
+rule is *measure before you tune*, and the previous threshold was tuned on
+scores alone. 5 labelled restatements and 10 labelled distinct facts, scored
+against the real corpus. A metric is usable only if `min(POS) > max(NEG)` — i.e.
+some threshold separates them at all:
+
+| metric | min(POS) | max(NEG) | verdict |
+|---|---|---|---|
+| containment / min *(shipped)* | 0.750 | **1.000** | **OVERLAPS — unusable at ANY threshold** |
+| jaccard | 0.222 | 0.100 | separable, gap 0.12 |
+| dice | 0.364 | 0.182 | separable, gap 0.18 |
+| **ochiai** (set cosine) | **0.471** | **0.279** | **separable, gap 0.19 — best** |
+
+So the old metric was not mis-tuned, it was **unusable**: no threshold existed.
+(Jaccard, which the first fix explicitly rejected, was in fact separable — it
+was rejected for scoring 0.32 against a 0.70 cut chosen for a *different*
+metric.)
+
+Fixed with **Ochiai** = `|A ∩ B| / sqrt(|A|·|B|)`, the geometric mean of the two
+containments: still "is this largely a restatement?", but a fact can no longer
+claim a note merely by being short. Cut at **0.40**, above the measured 0.375
+midpoint, biased deliberately toward writing a new file. Routing on the real
+corpus went from **5 of 10 cases wrong to 10 of 10 right**, with the flagship
+accretion case still merging (0.51 / 0.47).
+
+**Why the existing test did not catch it:** `knowledge_remember_test` already
+had a negative case ("a distinct fact must not be swallowed") and it **passed —
+for the wrong reason**. Its fixture corpus holds one *short* note, and this bug
+only manifests against a *large* one. The new Test 8 builds a note far larger
+than the fact under test, with every one of the fact's tokens present in
+unrelated sentences. Reverting the metric fails 3 assertions; one of them
+deliberately picks a fact whose tokens *are* in the fixture, because a fact
+whose tokens are absent passes under either metric and asserts nothing.
+
+## Tier 2 — latent
+
+### 🟡 2. The corpus was the one durable store not written atomically
+
+CLAUDE.md requires new durable state to go through `src/atomic_io.py`
+(fsync-before-replace; this machine has no UPS). Seven modules do.
+`src/knowledge.py` — which writes **the only user-*authored* data in the tree** —
+used plain `path.write_text`. The merge path is worse than the new-file path: it
+is a read-modify-write of the *whole* note, so a torn write there destroys every
+fact already accreted into it, which is precisely the "silently destroying a
+distinct fact" outcome the dedup design itself names as the dangerous one. Both
+writes now go through `atomic_write_text`, pinned by Test 9.
+
+### 🟡 3. Three of four direct-but-transitive imports were still undeclared
+
+Pass #5 found `comtypes` imported directly while declared only transitively, and
+fixed it — correctly reasoning that "a direct import deserves a direct
+declaration". It did not check whether `comtypes` had peers. It had three:
+`torch` (`security.py`, `sound_detector.py`), `icalendar`
+(`outlook_calendar.py`), and `av` (`speech_to_text.py`, `remote_console.py`).
+All are satisfied today by a transitive edge; if that edge moves, the feature
+breaks at *runtime* on an already-rebuilt machine rather than at install time.
+The `av` case is the sharpest — without it the phone PWA's voice path fails
+while its text path keeps working, exactly the half-broken remote client nobody
+reports. This is the project's own *fix the failure mode, not the instance* rule
+catching the audit that articulated it, one pass later.
+
+### 🟡 4. `plex_mcp._populate_tools` was append-only
+
+`self.tools` / `self.tool_names` are appended to, never cleared. One caller, once
+per session, so it cannot double up today — but a reconnect path is the obvious
+next change here, and it would declare every tool to the API twice. Made
+idempotent; cheaper than remembering why it wasn't.
+
+## Tier 3 — polish
+
+### 🟢 5. Dead code
+
+13 unused imports across `src/` and `tests/` (AST-verified, then hand-checked —
+the `Callable` imports that *look* unused are used in string annotations and
+were kept). One genuinely orphaned function, `send_discord_alert_for_path`: a
+convenience wrapper for "the caller has the path, not the bytes", whose only
+plausible caller (`security.py`) always has the bytes. A helper extracted for a
+caller that never came — what *rule of three before extracting* exists to
+prevent. Removing it orphaned its `pathlib` import in turn, which the re-scan
+caught.
+
+### 🟢 6. Documentation drift — six stale counts
+
+`README.md` claimed 54 gates / 51 suites / 107 milestone entries / "five gates
+skipped in CI"; `CLAUDE.md` claimed 51 suites twice and described 58 *gates* as
+58 *suites*; `.github/workflows/ci.yml` claimed "40 of 45 gates, 5 skipped". Real
+figures: **58 gates = 55 suites + 3 structural**, 108 milestone entries.
+
+The CI numbers were **measured, not guessed** — a `sitecustomize.py` injected on
+`PYTHONPATH` (so it reaches every subprocess the gate spawns; an in-process
+import hook does not, which is why the first attempt silently measured nothing)
+blocked exactly the modules `requirements-ci.txt` omits, and the gate was re-run:
+**49 of 58, 9 skipped**, not 5. The comment now also says the runtime skip list
+is the authoritative one, so it degrades gracefully instead of going stale again.
+
+## Verified non-issues (checked, deliberately not changed)
+
+- **No bare `except:`, no mutable default arguments, no `subprocess` call
+  without a timeout, no HTTP call without a timeout** (all AST-verified). The
+  two `BaseException` handlers remain correct.
+- **The 63 `except ...: pass` handlers are not silent swallows.** Sampled across
+  the data paths: every one is a *narrow, typed* handler (`ValueError`,
+  `(ValueError, TypeError)`) around a single `datetime` parse, most with an
+  inline comment naming the fall-through. Idiomatic and deliberate.
+- **The UI's `append`-in-a-loop sites are not leaks.** `console.py` and `hud.py`
+  build their canvas-item lists **once** in the constructor and only *read* them
+  in the render loop — they are not per-frame appends, which at 20-30 fps in an
+  always-on process would have been one.
+- **`plex_action` in `_RESTRICTED_DENY` is not a stale entry** despite not being
+  a `_CLIENT_TOOLS` key — it lives in `_PLEX_LAPTOP_DISPATCH`, and line 1069
+  documents exactly that.
+- **"36 tools" is accurate**: 34 client + 2 server, 12 denied, 22 reachable from
+  the phone and 23 from Discord.
+- **`anticipation._is_duplicate` shares the *shape* of finding 1** (a short prior
+  contained in a long new insight suppresses it) but not the severity: it matches
+  whole normalized strings rather than token sets, which is far stricter; the
+  buffer is a bounded `deque`; it is a backstop behind a prompt-level guard; and
+  the failure mode is one skipped announcement, self-correcting next tick. Left
+  alone deliberately — changing it would be speculative.
+- **The three remaining unreferenced functions are deliberate and documented**:
+  `face_auth.delete_encoding` is recorded in the M39 milestone as an unwired
+  YAGNI hook, `face_auth.is_enrolled` is part of the documented defensive
+  contract (every public function returns a sentinel if dlib is absent), and
+  `autostart.desktop_shortcut_path` is one half of a symmetric accessor pair
+  whose partner is used. Removing a documented decision is not cleanup.
+- **Repo hygiene is clean**: nothing untracked-and-unignored, nothing
+  tracked-but-ignored, no TODO/FIXME/HACK in `src/`, and both non-obvious
+  top-level directories are legitimate (`sandbox/Containerfile` builds the
+  `run_code` image; `stt_server/` is the GPU-offload box's deployable).
+
+## Caught during close-out QA (worth its own heading)
+
+The Test 8 fixture was originally **copied from the real corpus's largest note**
+— hostname, username, and SSH key-auth configuration and all. `jarvis` is a
+**PUBLIC** repo; `jarvis-knowledge` is private, and the 2026-07-14 scrub had
+removed exactly that hostname (`git grep` at HEAD: **zero** occurrences). The
+commit would have re-introduced it.
+
+**The new vector is the point.** The scrub cleaned docs and code, and the
+standing warning correctly says "PII was in the CODE not just docs" — but a
+**test fixture** is a third surface, and it is the one you reach for precisely
+when you want realistic data. Realism is exactly the wrong instinct there: a
+fixture needs the right *shape* (a note far larger than the fact under test,
+containing all its tokens in unrelated sentences), never the right *contents*.
+Replaced with a generic runbook; the suite still fails 3 assertions when the
+metric is reverted, so nothing was lost but the disclosure.
+
+## Deferred (real, deliberately not done at the tail of an audit)
+
+- **`listen_loop()` is 945 lines** — the sharpest structural finding in the tree,
+  and a worse smell than any large *file*, because a large file of small
+  functions is fine. It takes **15 parameters** and its body is largely one
+  598-line closure (`_voice_session_loop`) that captures **11 of them** plus a
+  `nonlocal`. That capture is *why* it is a closure and why extracting it is not
+  mechanical: it needs a small state object (a `VoiceSession` holding the
+  captured collaborators), not a longer parameter list. CLAUDE.md already names
+  this ("extracting the text/voice intent dispatch... **wants a test at the right
+  level first**"), and it is the hot path of an always-on voice assistant with no
+  correctness payoff. It wants its own session, seam-tested first — the same
+  judgement pass #5 made about `security.py`, for the same reasons.
+- **`security.py` is still 1,714 lines**, unchanged from pass #5's deferral. Worth
+  noting the shape though: it is **one class of 36 methods, largest 181 lines** —
+  internally well-decomposed, a big class rather than a god function. That makes
+  it materially less urgent than the 945-line function above.
+- **`console.py::__init__` is 361 lines** of widget construction inside a
+  1,189-line class. Benign, mechanical to split by widget group, and the
+  lowest-risk of the three if a structural session ever happens.
+- **Armed-mode capture starvation** remains open and unchanged (M99).
+
+---
+
 # Jarvis — Code Audit (consolidation pass #5)
 
 **Date:** 2026-08-18

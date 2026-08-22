@@ -27,7 +27,6 @@ import ssl
 import sys
 from datetime import datetime
 from email.message import EmailMessage
-from pathlib import Path
 
 import httpx
 
@@ -160,31 +159,6 @@ def send_discord_photo(
     print(f"[notify] discord photo sent ({len(image_bytes)} bytes, "
           f"HTTP {resp.status_code})", file=sys.stderr)
     return True
-
-
-def send_discord_alert_for_path(
-    webhook_url: str,
-    image_path: Path,
-    when: datetime | None = None,
-) -> bool:
-    """Convenience wrapper: read the JPEG from disk and post.
-
-    Useful when the caller has already saved the evidence file and just
-    has the path — saves a round-trip of passing bytes in memory. Read
-    failure is treated like any other notification failure: log + return
-    False, don't raise.
-    """
-    if not webhook_url or image_path is None:
-        return False
-    try:
-        image_bytes = image_path.read_bytes()
-    except OSError as exc:
-        print(f"[notify] couldn't read evidence file {image_path}: {exc}",
-              file=sys.stderr)
-        return False
-    return send_discord_alert(
-        webhook_url, image_bytes, image_filename=image_path.name, when=when,
-    )
 
 
 def send_discord_message(webhook_url: str, content: str) -> bool:

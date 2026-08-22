@@ -248,6 +248,14 @@ class PlexMCPClient:
             self._session = None
 
     def _populate_tools(self, discovered: list[Any]) -> None:
+        # Idempotent by construction. There is exactly one caller today and it
+        # runs once per session, so this cannot double up now — but the two
+        # collections are APPEND-only, so the day a reconnect path is added
+        # (the obvious next change here) every tool would be declared twice to
+        # the API. Cheaper to make it re-runnable than to remember why it
+        # wasn't.
+        self.tools.clear()
+        self.tool_names.clear()
         included: list[str] = []
         excluded: list[str] = []
         for t in discovered:

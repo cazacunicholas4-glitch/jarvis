@@ -15,7 +15,6 @@ concurrent writers don't blow up or leave a torn file.
 """
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import threading

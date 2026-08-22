@@ -16,6 +16,9 @@ Isolation uses BOTH JARVIS_KNOWLEDGE_DIR (corpus) and JARVIS_KNOWLEDGE_DB
 (derived FTS5 index) against a temp dir.
 
   - the index override actually isolates, and the REAL index is untouched
+  - restatements merge but DISTINCT facts do not -- including against a
+    LARGE note, the asymmetry that made the first dedup metric unusable
+  - every corpus write goes through atomic_io
 
 WHY BOTH (post-mortem, 2026-08-21): this test previously overrode only
 JARVIS_KNOWLEDGE_DIR and looked isolated. It was not. `knowledge_remember`
@@ -198,6 +201,109 @@ with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
           "already had" in out.lower())
     check("dedup: fully-covered restatement -> no second file",
           len(list(Path(tmp).glob("*.md"))) == 1)
+
+
+# --- Test 8: a LARGE note must not swallow a short distinct fact ---------
+# THE 2026-08-22 BUG, and the reason Test 6's negative case was not enough:
+# Test 6 asserts that a distinct fact stays separate, but its fixture corpus
+# holds one SHORT note, and this bug only manifests against a LARGE one. It
+# passed for the wrong reason.
+#
+# The first dedup fix scored |A n B| / min(|A|,|B|). When the new fact is short
+# the denominator collapses to the new fact itself, so the question silently
+# became "do all my words appear ANYWHERE in that note?" -- trivially true for
+# a big note. The consequence was not a misfile: the fact was judged a
+# token-subset and DISCARDED, with the reply "I already had that one filed,
+# sir." A write path that drops the write and reports success is the worst
+# shape a bug can take -- the user has no symptom to report.
+#
+# So this fixture deliberately builds a note far larger than the fact under
+# test, with every one of the fact's tokens present but in unrelated sentences.
+# Under the old metric it scores 1.00 and vanishes; under Ochiai, ~0.12.
+with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
+    # Deliberately GENERIC. This mirrors the SHAPE of the real corpus's largest
+    # note (a long runbook whose vocabulary overlaps many short facts) without
+    # reproducing its contents: `jarvis` is a PUBLIC repo and the corpus lives
+    # in a private one. The test needs a note far larger than the fact under
+    # test that contains all of that fact's tokens in unrelated sentences --
+    # nothing about it needs to be real.
+    (Path(tmp) / "runbook.md").write_text(
+        "# Media Server Runbook\n\n"
+        "The Plex Media Server runs on a dedicated machine on the LAN, reached\n"
+        "over SSH with key authentication rather than a password. The Windows\n"
+        "service name differs from the display name, and orphaned processes\n"
+        "left behind by a hard stop cause a crash loop, so stray processes\n"
+        "must be killed before restarting it. That machine also has a broken\n"
+        "WMI provider, so the usual network cmdlets fail on it; use .NET calls\n"
+        "or netsh instead to read network info there. The Plex log path lives\n"
+        "under AppData.\n",
+        encoding="utf-8",
+    )
+    # Every token of this fact ("plex", "server", "broken") appears above, in
+    # unrelated sentences ("Plex Media Server", "a broken WMI provider"). The
+    # note nowhere states that the server IS broken.
+    out = execute_knowledge_remember({"fact": "The Plex server is broken."})
+    check("large-note: a short distinct fact is NOT reported as already known",
+          "already had" not in out.lower())
+    check("large-note: a short distinct fact reaches DISK (was silently lost)",
+          any("The Plex server is broken." in f.read_text(encoding="utf-8")
+              for f in Path(tmp).glob("*.md")))
+    check("large-note: the big note was not modified",
+          "The Plex server is broken."
+          not in (Path(tmp) / "runbook.md").read_text(encoding="utf-8"))
+
+    # The same asymmetry from the other side. Every token of "The log path is
+    # broken." IS in the note above ("Plex log path...", "broken WMI...") -- so
+    # this case is 1.00 under the old metric and must be ~0.23 under Ochiai.
+    # (Picking a fact whose tokens are ABSENT would pass under either metric
+    # and assert nothing.)
+    from src.knowledge import _find_similar_fact  # noqa: E402
+    check("large-note: short fact does not match a far larger note",
+          _find_similar_fact(Path(tmp), "The log path is broken.") is None)
+
+    # ...while a genuine restatement of the LARGE note still merges, so the
+    # stricter metric has not simply disabled dedup.
+    hit = _find_similar_fact(Path(tmp), (
+        "The Plex Media Server runs on a dedicated machine on the LAN, "
+        "reached over SSH with key authentication rather than a password, "
+        "and the Windows service name differs from the display name."
+    ))
+    check("large-note: a genuine restatement of the big note still merges",
+          hit is not None and hit[0].name == "runbook.md")
+
+
+# --- Test 9: corpus writes are atomic -------------------------------------
+# The corpus is the only user-AUTHORED durable data in the tree, and CLAUDE.md
+# requires new durable state to go through src/atomic_io.py (fsync before
+# replace; this machine has no UPS). The merge path is a read-modify-write of
+# a WHOLE note, so a torn write there destroys every fact already accreted
+# into it -- the exact "silently destroying a distinct fact" outcome the dedup
+# design itself calls the dangerous one. This asserts the seam, not the
+# filesystem.
+with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
+    import src.knowledge as _k  # noqa: E402
+
+    _calls: list[Path] = []
+    _real_atomic = _k.atomic_write_text
+
+    def _spy(path, text, **kw):
+        _calls.append(Path(path))
+        return _real_atomic(path, text, **kw)
+
+    _k.atomic_write_text = _spy
+    try:
+        execute_knowledge_remember({"fact": "Aria is a tortoiseshell cat."})
+        check("atomic: the NEW-file write goes through atomic_write_text",
+              len(_calls) == 1)
+        execute_knowledge_remember(
+            {"fact": "Aria is a tortoiseshell cat who sleeps on the router."}
+        )
+        check("atomic: the MERGE write goes through atomic_write_text too",
+              len(_calls) == 2)
+        check("atomic: no torn temp files left behind",
+              not list(Path(tmp).glob("*.tmp*")))
+    finally:
+        _k.atomic_write_text = _real_atomic
 
 
 # --- summary --------------------------------------------------------------
