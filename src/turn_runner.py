@@ -49,6 +49,17 @@ from src.wake_word import monitor_for_wake_word
 MAX_PAIRS = 10            # cap conversation at 10 exchanges (20 messages)
 IDLE_RESET_SEC = 600.0    # 10 min of silence → forget conversation
 
+# Normal replies are German — the system prompt fixes the reply language, so
+# they are voiced with the German voice whatever language Whisper detected for
+# the input. The detected language still reaches memory and the console badge.
+REPLY_LANGUAGE = "de"
+
+
+def _fallback_language(language: str) -> str:
+    """Language of a fixed fallback line (apology / empty-reply ack): English
+    or Spanish only when Whisper detected exactly that, German otherwise."""
+    return language if language in ("en", "es") else REPLY_LANGUAGE
+
 
 def _barge_in_enabled() -> bool:
     """M52 kill switch. JARVIS_BARGE_IN ∈ {0,false,no,off} disables barge-in
@@ -160,7 +171,7 @@ class TurnRunner:
               file=sys.stderr)
         # Language + start-time of the *currently active* session (the one
         # being built up in `history`). Reset on every seal.
-        self._session_language = "en"
+        self._session_language = REPLY_LANGUAGE
         self._session_started_at = datetime.now().isoformat(timespec="seconds")
         # Serializes process_question so voice and text paths never run together.
         self._lock = threading.Lock()
@@ -224,7 +235,7 @@ class TurnRunner:
 
         # First turn of a (possibly new) session — capture its language.
         if not self._history:
-            self._session_language = language or "en"
+            self._session_language = language or REPLY_LANGUAGE
             self._session_started_at = datetime.now().isoformat(timespec="seconds")
 
         print(f"\n[user, {language}] {text}")
@@ -266,9 +277,10 @@ class TurnRunner:
             # user is present and saw the state indicators); nothing is
             # appended to history (nothing was actually said).
             if not interrupted and (reply_text is not None or reply_audio is not None):
-                ack = ("Disculpe, no tengo nada que añadir."
-                       if language == "es"
-                       else "I didn't have anything to add, sir.")
+                ack = {
+                    "es": "Disculpe, no tengo nada que añadir.",
+                    "en": "I didn't have anything to add, Master.",
+                }.get(language, "Dazu habe ich nichts hinzuzufügen, Master.")
                 self._ui.add_jarvis_text(ack)
                 self._emit_remote_reply(reply_text, ack)
             return interrupted
@@ -298,7 +310,7 @@ class TurnRunner:
                     DEFAULT_VOICE, VOICE_BY_LANG, _fetch_mp3_with_retry,
                 )
 
-                voice = VOICE_BY_LANG.get(language, DEFAULT_VOICE)
+                voice = VOICE_BY_LANG.get(REPLY_LANGUAGE, DEFAULT_VOICE)
                 mp3 = asyncio.run(_fetch_mp3_with_retry(full_response, voice))
                 reply_audio(mp3)
             except Exception as exc:  # noqa: BLE001
@@ -368,7 +380,7 @@ class TurnRunner:
                     monitor_thread.start()
                 speak_streaming(
                     llm_stream(),
-                    language=language,
+                    language=REPLY_LANGUAGE,
                     on_first_audio=lambda: self._ui.set_state(State.SPEAKING),
                     on_amplitude=self._ui.set_amplitude,
                     interrupt_event=interrupt_event,
@@ -388,15 +400,16 @@ class TurnRunner:
             # transcript too so the console reflects it. When silent (muted OR
             # phone-text origin), skip the spoken apology but still surface its
             # text — the phone/console sees the hiccup, the PC stays quiet.
-            apology = (
-                "Disculpe, tuve un problema técnico. ¿Podría intentarlo de nuevo?"
-                if language == "es"
-                else "Apologies, a technical hiccup. Could you try that again?"
-            )
+            apology_language = _fallback_language(language)
+            apology = {
+                "es": "Disculpe, tuve un problema técnico. ¿Podría intentarlo de nuevo?",
+                "en": "Apologies, a technical hiccup. Could you try that again?",
+            }.get(apology_language,
+                  "Verzeihung, ein technisches Problem. Könnten Sie das bitte wiederholen?")
             if not pc_silent:
                 self._ui.set_state(State.SPEAKING)
                 try:
-                    speak(apology, language=language)
+                    speak(apology, language=apology_language)
                 except Exception as apology_exc:
                     print(f"[main] apology TTS also failed: {apology_exc}")
             # Phone-audio turns: the apology TEXT still reaches the phone via the
@@ -692,7 +705,7 @@ class TurnRunner:
         if translation:
             self._ui.add_jarvis_text(translation)
 
-    def speak_line(self, text: str, language: str = "en") -> None:
+    def speak_line(self, text: str, language: str = REPLY_LANGUAGE) -> None:
         """Speak a fixed line aloud on the calling (audio-owning) thread,
         holding the speech gates so the mic doesn't self-capture it and the
         armed CPU loops defer. Used for interpreter mode's start/stop

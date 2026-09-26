@@ -204,7 +204,7 @@ def build_announcer(ui: JarvisUI, pc_speaking: threading.Event) -> Announcer:
                 try:
                     speak_streaming(
                         iter([text]),
-                        "en",
+                        "de",
                         on_first_audio=lambda: ui.set_state(State.SPEAKING),
                         on_amplitude=ui.set_amplitude,
                     )

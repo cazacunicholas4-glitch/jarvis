@@ -50,13 +50,26 @@ _START_PHRASES = frozenset({
     "conversemos",
     "hablemos",
     "modo conversacion",
+    # German (normalized: "Gespräch" → "gesprach")
+    "lass uns reden",
+    "lass uns sprechen",
+    "lass uns plaudern",
+    "lass uns quatschen",
+    "lass uns weiterreden",
+    "rede mit mir",
+    "sprich mit mir",
+    "unterhalte dich mit mir",
+    "gesprachsmodus",
+    "gesprachsmodus an",
 })
 
 # Words stripped from the FRONT before the exact match (Whisper often prefixes
 # the wake word / a filler).
-_LEAD_STRIP = ("hey jarvis", "okay jarvis", "ok jarvis", "jarvis", "hey", "okay", "ok", "so", "well")
+_LEAD_STRIP = ("hey jarvis", "okay jarvis", "ok jarvis", "hallo jarvis", "jarvis", "hey", "okay", "ok", "so", "well",
+               "hallo", "also", "na")
 # Trailing politeness stripped before the exact match.
-_TRAIL_STRIP = ("please", "jarvis", "buddy", "for a bit", "for a while", "a while", "now")
+_TRAIL_STRIP = ("please", "jarvis", "buddy", "for a bit", "for a while", "a while", "now",
+                "bitte", "jetzt", "mal", "ein bisschen", "ein wenig")
 
 # Exit is matched as a SUBSTRING — these phrases are specific enough that a
 # false positive is unlikely, and the user may wrap them ("okay Jarvis, let's
@@ -74,6 +87,13 @@ _STOP_PATTERNS = (
     "enough talking",
     "salir del modo conversacion",
     "termina la conversacion",
+    # German (normalized: "Gespräch" → "gesprach")
+    "gesprach beenden",
+    "beende das gesprach",
+    "gesprachsmodus aus",
+    "gesprachsmodus beenden",
+    "unterhaltung beenden",
+    "genug geredet",
 )
 
 
@@ -129,18 +149,20 @@ def is_stop_intent(text: str) -> bool:
 # Language-keyed so the confirmation matches the language the user activated in.
 
 _START_CONFIRM = {
-    "en": "Of course, sir. I'm listening — just speak, and say 'that's all' when you're done.",
+    "de": "Gerne, Master. Ich höre zu – sprechen Sie einfach, und sagen Sie „das war's“, wenn Sie fertig sind.",
+    "en": "Of course, Master. I'm listening — just speak, and say 'that's all' when you're done.",
     "es": "Por supuesto. Le escucho — hable cuando quiera, y diga 'eso es todo' cuando termine.",
 }
 _STOP_CONFIRM = {
-    "en": "Of course, sir.",
+    "de": "Sehr wohl, Master.",
+    "en": "Of course, Master.",
     "es": "Por supuesto.",
 }
 
 
-def start_confirmation(lang: str = "en") -> str:
-    return _START_CONFIRM.get(lang, _START_CONFIRM["en"])
+def start_confirmation(lang: str = "de") -> str:
+    return _START_CONFIRM.get(lang, _START_CONFIRM["de"])
 
 
-def stop_confirmation(lang: str = "en") -> str:
-    return _STOP_CONFIRM.get(lang, _STOP_CONFIRM["en"])
+def stop_confirmation(lang: str = "de") -> str:
+    return _STOP_CONFIRM.get(lang, _STOP_CONFIRM["de"])

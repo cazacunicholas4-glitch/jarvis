@@ -461,7 +461,7 @@ class JarvisConsole:
         if not self._destroyed:
             self.root.after(0, self._apply_state, state)
 
-    def add_user_text(self, text: str, language: str = "en") -> None:
+    def add_user_text(self, text: str, language: str = "de") -> None:
         if not self._destroyed:
             self.root.after(0, self._append_line, "you", text, language)
 
@@ -1132,7 +1132,7 @@ class JarvisConsole:
             # next line, indented via the user/jarvis tags' lmargin.
             tb.insert("end", f"{ts}  ", "time")
             if who == "you":
-                label = "YOU" + (f"  ·  {language}" if language and language != "en" else "")
+                label = "YOU" + (f"  ·  {language}" if language and language != "de" else "")
                 tb.insert("end", label + "\n", "you_label")
                 tb.insert("end", text + "\n", "user")
             else:

@@ -93,7 +93,7 @@ class PresenceController:
         is_armed: Callable[[], bool],
         announce: Optional[Callable[[str], None]] = None,
         arm_delay: float = 60.0,
-        greeting: str = "Welcome home, sir.",
+        greeting: str = "Willkommen zu Hause, Master.",
         schedule: Optional[Callable[[float, Callable[[], None]], object]] = None,
     ) -> None:
         self._arm = arm

@@ -34,10 +34,11 @@ import pyttsx3
 import sounddevice as sd
 
 VOICE_BY_LANG = {
+    "de": "de-DE-ConradNeural",  # calm German male — the default reply voice
     "en": "en-GB-RyanNeural",   # calm British male — Paul Bettany-adjacent
     "es": "es-MX-JorgeNeural",  # formal Mexican male — butler register
 }
-DEFAULT_VOICE = "en-GB-RyanNeural"
+DEFAULT_VOICE = "de-DE-ConradNeural"
 
 # Sentence boundary: terminal punctuation followed by whitespace/EOS, or any newline.
 # Note: false positives on abbreviations ("Mr. Smith") are acceptable — they just
@@ -95,7 +96,7 @@ def _strip_markdown_for_tts(text: str) -> str:
     return text
 
 
-def speak(text: str, language: str = "en") -> None:
+def speak(text: str, language: str = "de") -> None:
     """Tier A: synthesize full text in one shot and play. Edge-tts → pyttsx3 fallback."""
     text = _strip_markdown_for_tts(text.strip())
     if not text:
@@ -110,7 +111,7 @@ def speak(text: str, language: str = "en") -> None:
         print(f"[tts] edge-tts failed ({exc}); falling back to pyttsx3", file=sys.stderr)
 
     try:
-        _speak_pyttsx3(text)
+        _speak_pyttsx3(text, language)
     except Exception as exc:
         print(f"[tts] pyttsx3 also failed ({exc}); audio dropped", file=sys.stderr)
 
@@ -171,7 +172,7 @@ def _play_via_duplex_aec(device, audio_q, interrupt_event, interrupted,
 
 def speak_streaming(
     text_iter: Iterable[str],
-    language: str = "en",
+    language: str = "de",
     on_first_audio: Callable[[], None] | None = None,
     on_amplitude: Callable[[float], None] | None = None,
     interrupt_event: "threading.Event | None" = None,
@@ -573,8 +574,33 @@ async def _fetch_mp3_with_retry(
     raise last_exc
 
 
-def _speak_pyttsx3(text: str) -> None:
+# Offline fallback voice selection. SAPI voices are identified by name/id
+# (e.g. "Microsoft Hedda Desktop - German"), so match on these markers. When no
+# installed voice matches, pyttsx3 keeps the Windows default voice as before.
+_PYTTSX3_VOICE_MARKERS = {
+    "de": ("german", "deutsch", "de-de", "de_de", "hedda", "katja", "stefan"),
+    "es": ("spanish", "español", "es-mx", "es-es", "sabina", "helena"),
+    "en": ("english", "en-us", "en-gb", "david", "zira", "hazel"),
+}
+
+
+def _select_pyttsx3_voice(engine, language: str) -> None:
+    markers = _PYTTSX3_VOICE_MARKERS.get(language)
+    if not markers:
+        return
+    try:
+        for v in engine.getProperty("voices") or []:
+            ident = f"{getattr(v, 'id', '')} {getattr(v, 'name', '')}".lower()
+            if any(m in ident for m in markers):
+                engine.setProperty("voice", v.id)
+                return
+    except Exception as exc:  # noqa: BLE001 — voice choice is best-effort
+        print(f"[tts] pyttsx3 voice selection failed ({exc})", file=sys.stderr)
+
+
+def _speak_pyttsx3(text: str, language: str = "de") -> None:
     engine = pyttsx3.init()
+    _select_pyttsx3_voice(engine, language)
     engine.say(text)
     engine.runAndWait()
     engine.stop()

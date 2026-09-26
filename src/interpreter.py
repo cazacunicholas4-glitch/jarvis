@@ -33,6 +33,7 @@ import unicodedata
 
 # Human-readable names for the spoken confirmations + the translation prompt.
 LANG_NAMES = {
+    "de": "German",
     "en": "English",
     "es": "Spanish",
 }
@@ -100,6 +101,15 @@ _START_PATTERNS = (
     "modo interprete",          # normalized (accent stripped)
     "se mi interprete",
     "traduce para mi",
+    # German — normalized too, so "ü"/"ö" appear as "u"/"o".
+    "sei mein dolmetscher",
+    "sei mein ubersetzer",
+    "dolmetschermodus an",
+    "dolmetschermodus starten",
+    "starte den dolmetschermodus",
+    "ubersetzermodus an",
+    "dolmetsche fur mich",
+    "ubersetze fur mich",
 )
 
 _STOP_PATTERNS = (
@@ -115,6 +125,15 @@ _STOP_PATTERNS = (
     "deja de interpretar",
     "para de traducir",
     "para de interpretar",
+    # German (normalized: "hör" → "hor", "übersetzen" → "ubersetzen").
+    "dolmetschen beenden",
+    "dolmetscher beenden",
+    "dolmetschermodus aus",
+    "dolmetschermodus beenden",
+    "beende den dolmetschermodus",
+    "hor auf zu dolmetschen",
+    "hor auf zu ubersetzen",
+    "ubersetzen beenden",
 )
 
 
@@ -154,17 +173,40 @@ def build_translation_prompt(target_lang: str) -> str:
 
 
 # --- Spoken confirmations (start / stop) -----------------------------------
-# Spoken in BOTH languages on entry so the other party (the non-English-speaking family member)
-# also hears what's happening. The English line is always spoken; the Spanish
-# line is added by the caller only when 'es' is in the configured pair.
+# Spoken in BOTH languages of the configured pair so the other party also hears
+# what's happening: first the owner's (primary) language, then the other
+# party's — see confirmation_lines().
 
+START_CONFIRM_DE = (
+    "Dolmetschermodus an, Master. Ich übersetze zwischen Ihnen und der anderen "
+    "Person. Sagen Sie „Dolmetschen beenden“, wenn Sie fertig sind."
+)
+STOP_CONFIRM_DE = "Dolmetschermodus aus, Master."
 START_CONFIRM_EN = (
-    "Interpreter mode on, sir. I'll translate between you and the other person. "
+    "Interpreter mode on, Master. I'll translate between you and the other person. "
     "Say 'stop interpreting' when you're finished."
 )
 START_CONFIRM_ES = (
     "Modo intérprete activado. Voy a traducir la conversación. "
     "Hábleme con naturalidad."
 )
-STOP_CONFIRM_EN = "Interpreter mode off, sir."
+STOP_CONFIRM_EN = "Interpreter mode off, Master."
 STOP_CONFIRM_ES = "Modo intérprete desactivado."
+
+_START_CONFIRM = {"de": START_CONFIRM_DE, "en": START_CONFIRM_EN, "es": START_CONFIRM_ES}
+_STOP_CONFIRM = {"de": STOP_CONFIRM_DE, "en": STOP_CONFIRM_EN, "es": STOP_CONFIRM_ES}
+
+
+def confirmation_lines(start: bool,
+                       pair: "tuple[str, str] | None" = None) -> list[tuple[str, str]]:
+    """The (text, language) lines to speak when interpreter mode turns on
+    (`start`) or off. The owner's (primary) language comes first — German when
+    the primary has no fixed line — then the other party's language if it has
+    one. With the default en/es pair this is exactly the old EN + ES pair."""
+    table = _START_CONFIRM if start else _STOP_CONFIRM
+    primary, secondary = pair or LANG_PAIR
+    first = primary if primary in table else "de"
+    lines = [(table[first], first)]
+    if secondary in table and secondary != first:
+        lines.append((table[secondary], secondary))
+    return lines

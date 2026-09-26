@@ -107,8 +107,8 @@ check("EN start confirmation is non-empty", bool(cm.start_confirmation("en")))
 check("EN stop confirmation is non-empty", bool(cm.stop_confirmation("en")))
 check("ES start confirmation differs from EN",
       cm.start_confirmation("es") != cm.start_confirmation("en"))
-check("unknown lang falls back to EN start",
-      cm.start_confirmation("fr") == cm.start_confirmation("en"))
+check("unknown lang falls back to DE start",
+      cm.start_confirmation("fr") == cm.start_confirmation("de"))
 check("start confirmation tells the user how to exit",
       "that's all" in cm.start_confirmation("en").lower())
 

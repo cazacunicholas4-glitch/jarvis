@@ -188,7 +188,7 @@ class JarvisUI:
         # STATE_COLOR keys and the server snapshot's "idle" default.
         self._remote_call("update_state", state.name.lower())
 
-    def add_user_text(self, text: str, language: str = "en") -> None:
+    def add_user_text(self, text: str, language: str = "de") -> None:
         self._console_call("add_user_text", text, language)
         self._remote_call("push_line", "user", text)
 

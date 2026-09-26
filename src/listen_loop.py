@@ -89,6 +89,14 @@ _DISMISSAL_PHRASES = frozenset({
     "no thank you", "no thanks", "im done", "im good", "im all set",
     "we are done", "were done", "all done", "thank you jarvis",
     "thanks jarvis", "goodbye",
+    # German sign-offs (normalized: apostrophes dropped, umlauts kept). "Gute
+    # Nacht" is deliberately NOT here, for the same reason as "good night"
+    # below — it must reach Claude and route to the evening wrap.
+    "das wars", "das war es", "das war alles", "das ist alles",
+    "das wäre alles", "das wärs", "nichts weiter", "nichts mehr",
+    "nein danke", "ich bin fertig", "wir sind fertig", "alles erledigt",
+    "danke jarvis", "vielen dank jarvis", "auf wiedersehen", "tschüss",
+    "tschüs",
     # 2026-07-02 QA: "good night"/"goodnight" REMOVED — as dismissals they
     # short-circuited before the LLM on any follow-up/conversation-mode turn,
     # shadowing the M63 get_good_night wrap (security state + tomorrow's
@@ -105,6 +113,7 @@ _DISMISSAL_PHRASES = frozenset({
 _TRAILING_COURTESY = (
     "thank you very much", "thank you so much", "thanks so much",
     "thank you", "thanks", "please",
+    "vielen dank", "danke schön", "dankeschön", "danke sehr", "danke", "bitte",
 )
 
 
@@ -113,7 +122,7 @@ def _is_dismissal(text: str) -> bool:
     to skip opening a follow-up window after it. Suffix match on a normalized
     transcript (lowercased, punctuation/apostrophes stripped), with one
     trailing courtesy ("...thank you") stripped before re-testing."""
-    norm = " ".join(re.sub(r"[^a-z0-9 ]+", "", (text or "").lower()).split())
+    norm = " ".join(re.sub(r"[^a-z0-9äöüß ]+", "", (text or "").lower()).split())
     if not norm:
         return False
 
@@ -245,9 +254,8 @@ def listen_loop(
     # surface (phone + discord origins lose system/shell/file/etc.).
     # reply_audio: None (console — PC behaviour) or a conn-bound sink (phone)
     # — its presence routes this reply's audio to THAT phone instead of PC.
-    # lang: M48.3 — whisper-detected ISO-639-1 for phone_voice (so Spanish-
-    # spoken into the phone gets a Spanish reply + a Spanish voice); "en"
-    # for typed inputs where we have no detection. Voice path on the PC
+    # lang: M48.3 — whisper-detected ISO-639-1 for phone_voice; "de" for
+    # typed inputs where we have no detection. Replies are German either way. Voice path on the PC
     # mic calls process_question directly (not via this queue), unaffected.
     # reply_text (2026-06-02): None, or a PER-TURN text sink (Discord) that
     # posts the reply back to the originating channel — NOT a broadcast, so a
@@ -366,12 +374,11 @@ def listen_loop(
                 # derives BOTH the text-only gate (phone_text doesn't speak on
                 # the PC) AND the restricted tool surface (phone origins lose
                 # system/shell/file/etc.) from it.
-                # M48.3: language is "en" for typed input (no detection
+                # M48.3: language is "de" for typed input (no detection
                 # available) but the whisper-detected ISO code for
-                # phone_voice — so "¿qué hora es?" spoken into the phone
-                # gets a Spanish reply with a Spanish voice. Claude still
-                # follows the input's language via the system prompt; the
-                # `language` arg drives TTS voice selection downstream.
+                # phone_voice. Replies are German either way (system prompt)
+                # and voiced with the German voice; the `language` arg only
+                # tags memory and picks the fixed apology/ack line downstream.
                 runner.process_question(
                     text, lang, attachments=blocks, origin=origin,
                     reply_audio=reply_audio, reply_text=reply_text,
@@ -386,7 +393,7 @@ def listen_loop(
     # (text, attachments) args into a single queue item.
     ui.set_on_text_submit(
         lambda text, attachments: text_queue.put(
-            (text, attachments, "console", None, "en", None, None)  # console → no phone audio sink, no remote text/image sink; lang "en"
+            (text, attachments, "console", None, "de", None, None)  # console → no phone audio sink, no remote text/image sink; lang "de"
         )
     )
 
@@ -401,7 +408,7 @@ def listen_loop(
         # non-None ⇒ this reply's audio goes to THAT phone, not the PC.
         remote_server.set_on_text(
             lambda t, reply_audio: text_queue.put(
-                (t, [], "phone_text", reply_audio, "en", None, None)  # phone typed → "en"; text reply rides the broadcast sink; no image sink
+                (t, [], "phone_text", reply_audio, "de", None, None)  # phone typed → "de"; text reply rides the broadcast sink; no image sink
             )
         )
 
@@ -431,9 +438,9 @@ def listen_loop(
                             "(no speech detected in phone audio)"
                         )
                         return
-                    # Whisper-detected language flows through to TTS voice
-                    # selection — phone Spanish gets a Spanish voice reply.
-                    lang = (t.language or "en").strip() or "en"
+                    # Whisper-detected language flows through (memory tag and
+                    # the fixed apology line); the reply itself is German.
+                    lang = (t.language or "de").strip() or "de"
                     text_queue.put(
                         (text, [], "phone_voice", reply_audio, lang, None, None)
                     )
@@ -473,7 +480,7 @@ def listen_loop(
             # because camera_snapshot is clawed back for origin="discord" alone.
             _discord_bot.set_on_text(
                 lambda t, reply_text, reply_image: text_queue.put(
-                    (t, [], "discord", None, "en", reply_text, reply_image)
+                    (t, [], "discord", None, "de", reply_text, reply_image)
                 )
             )
             _discord_bot.start()
@@ -615,9 +622,8 @@ def listen_loop(
                         ui.add_user_text(transcript.text, transcript.language)
                         interpreter_mode.clear()
                         print("[interpreter] mode OFF (voice)", file=sys.stderr)
-                        runner.speak_line(_interp.STOP_CONFIRM_EN, "en")
-                        if "es" in _interp.LANG_PAIR:
-                            runner.speak_line(_interp.STOP_CONFIRM_ES, "es")
+                        for _line, _lang in _interp.confirmation_lines(start=False):
+                            runner.speak_line(_line, _lang)
                         ui.set_state(State.IDLE)
                         continue
                     runner.interpret(transcript.text, transcript.language)
@@ -996,9 +1002,8 @@ def listen_loop(
                     # instead of returning to the wake-word baseline.
                     conversation_mode.clear()
                     print("[interpreter] mode ON (voice)", file=sys.stderr)
-                    runner.speak_line(_interp_start.START_CONFIRM_EN, "en")
-                    if "es" in _interp_start.LANG_PAIR:
-                        runner.speak_line(_interp_start.START_CONFIRM_ES, "es")
+                    for _line, _lang in _interp_start.confirmation_lines(start=True):
+                        runner.speak_line(_line, _lang)
                     ui.set_state(State.IDLE)
                     followup = False
                     continue

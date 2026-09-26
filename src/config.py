@@ -80,7 +80,7 @@ class Config:
     remote_port: int           # M48 — TCP port the LAN remote-console server listens on.
     remote_bind: str           # M48 — interface to bind. "0.0.0.0" = all (LAN-reachable; the token + a LAN-only firewall rule are the controls). Never port-forward this.
     presence_arm_delay: float  # M70 — seconds to DEFER an auto-arm after a "leave" geofence ping, cancelled if an "arrive" lands first. Absorbs boundary-flap (skirting the geofence fires leave→arrive in seconds). Default 60; the iOS geofence is already ~100m out so a minute's delay after leaving costs nothing. 0 = arm immediately.
-    presence_greeting: str     # M70 — what Jarvis says on an arrive that disarms an armed house. Default "Welcome home, sir."; set JARVIS_PRESENCE_GREETING to change it.
+    presence_greeting: str     # M70 — what Jarvis says on an arrive that disarms an armed house. Default "Willkommen zu Hause, Master."; set JARVIS_PRESENCE_GREETING to change it.
     tls_cert_file: str         # M48.3 prereq — absolute path to a TLS cert (e.g. from `tailscale cert <host>.ts.net`). BOTH cert+key set ⇒ HTTPS/WSS; either missing ⇒ plain HTTP/WS (LAN-mode fallback). File MUST live outside the repo (it's a credential).
     tls_key_file: str          # M48.3 prereq — absolute path to the matching TLS private key. Same on/off semantics as tls_cert_file. Keep out of git.
     homelab_monitor_enabled: bool  # M56 — start the proactive homelab monitor at launch. Default off (opt-in via this flag or the tray toggle). Poll/threshold/disk tunables live in src/homelab_monitor.py.
@@ -155,7 +155,7 @@ def load() -> Config:
         # geofence boundary-flap; the greeting fires only on a real disarm.
         presence_arm_delay=_float_env("JARVIS_PRESENCE_ARM_DELAY", 60.0),
         presence_greeting=os.getenv(
-            "JARVIS_PRESENCE_GREETING", "Welcome home, sir."
+            "JARVIS_PRESENCE_GREETING", "Willkommen zu Hause, Master."
         ).strip(),
         # M48.3 prereq — TLS via Tailscale's MagicDNS `*.ts.net` cert
         # (`tailscale cert <host>` mints the pair via Let's Encrypt; both files
