@@ -1713,9 +1713,11 @@ class SecurityWatcher:
 # "certainly", "zur Sicherheit" means "to be safe". So activation always needs
 # a verb ("aktiviere die Sicherheit", "schalten Sie den Sicherheitsmodus ein",
 # "Alarmanlage scharf schalten") — a bare "Sicherheit an/ein" never arms — the
-# bare "Sicherheit aus" skips "mit/zur Sicherheit aus…", and "entschärfen"
-# only counts with a security noun or as the whole utterance (so "einen
-# Streit entschärfen" still reaches Claude).
+# bare "Sicherheit aus" / "Alarmanlage aus" only counts as the whole
+# utterance (German verbs end in "aus": "Wie sieht es mit der Sicherheit
+# aus?" is a question, not a disarm), and "entschärfen" only counts with a
+# security noun or as the whole utterance (so "einen Streit entschärfen"
+# still reaches Claude). "unscharf schalten" mirrors "scharf schalten".
 _DE_SECURITY_NOUN = r"(?:sicherheit(?:smodus|ssystem)?|alarmanlage)"
 _DE_ARTICLE = r"(?:sie\s+)?(?:bitte\s+)?(?:(?:die|den|das)\s+)?"
 
@@ -1729,12 +1731,11 @@ _ACTIVATE_RE = re.compile(
 _DEACTIVATE_RE = re.compile(
     r"\b(stand\s+down|disarm|deactivate|disable|security\s+off|turn\s+off\s+security)\b"
     rf"|\bdeaktivier(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\b"
-    rf"|\bschalt(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\s+(?:bitte\s+)?(?:aus|ab)\b"
-    rf"|\b{_DE_SECURITY_NOUN}\s+(?:deaktivieren|ausschalten|abschalten|entsch(?:ä|ae)rfen)\b"
+    rf"|\bschalt(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\s+(?:bitte\s+)?(?:aus|ab|unscharf)\b"
+    rf"|\b{_DE_SECURITY_NOUN}\s+(?:deaktivieren|ausschalten|abschalten|unscharf\s*schalten|entsch(?:ä|ae)rfen)\b"
     rf"|\bentsch(?:ä|ae)rf(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\b"
     r"|^\W*(?:jarvis\W+)?(?:bitte\s+)?entsch(?:ä|ae)rf(?:e|en)(?:\s+bitte)?\W*$"
-    r"|(?<!\bmit\s)(?<!\bzur\s)\bsicherheit\s+aus\b"
-    r"|\b(?:sicherheitsmodus|sicherheitssystem|alarmanlage)\s+aus\b"
+    rf"|^\W*(?:(?:hey\s+)?jarvis\W+)?(?:bitte\s+)?(?:(?:die|den|das)\s+)?{_DE_SECURITY_NOUN}\s+aus(?:\W+bitte)?\W*$"
     r"|\bwache\s+beenden\b|\bbeende\s+(?:die\s+)?wache\b",
     re.IGNORECASE,
 )

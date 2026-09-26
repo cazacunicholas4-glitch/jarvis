@@ -87,14 +87,19 @@ _STOP_PATTERNS = (
     "enough talking",
     "salir del modo conversacion",
     "termina la conversacion",
-    # German (normalized: "Gespräch" → "gesprach")
+)
+# German exits are matched EXACTLY after affix stripping, like the start
+# phrases: German puts the infinitive last, so as substrings they also end
+# ordinary questions ("Wie kann ich ein Telefongespräch beenden?").
+_STOP_PHRASES_DE = frozenset({
     "gesprach beenden",
+    "das gesprach beenden",
     "beende das gesprach",
     "gesprachsmodus aus",
     "gesprachsmodus beenden",
     "unterhaltung beenden",
     "genug geredet",
-)
+})
 
 
 def _normalize(text: str) -> str:
@@ -142,7 +147,8 @@ def is_stop_intent(text: str) -> bool:
     sign-offs like "that's all" are caught separately by _is_dismissal, which
     also exits the mode.)"""
     norm = _normalize(text)
-    return any(p in norm for p in _STOP_PATTERNS)
+    return (any(p in norm for p in _STOP_PATTERNS)
+            or _strip_affixes(norm) in _STOP_PHRASES_DE)
 
 
 # --- Spoken confirmations --------------------------------------------------

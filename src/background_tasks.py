@@ -303,7 +303,7 @@ def execute_start_background_task(params: dict) -> str:
     session_id, error = background_agent.dispatch(_api_key(), prompt)
     if not session_id:
         task_store.update(record["task_id"], status="failed", error=error)
-        return f"I couldn't start that, Master — {error or 'the service is unavailable'}."
+        return f"I couldn't start that, Master — {(error or 'the service is unavailable').rstrip('.')}."
     task_store.update(record["task_id"], session_id=session_id, status="running")
     return (f"Working on it, Master. I'll look into that in the background and "
             f"report back — reference {record['task_id']}.")

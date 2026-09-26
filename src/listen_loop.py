@@ -41,7 +41,7 @@ from src.plex_laptop import PlexLaptopClient
 from src.plex_mcp import PlexMCPClient
 from src.speech_to_text import transcribe_after_wake
 from src.tray import State
-from src.turn_runner import TurnRunner
+from src.turn_runner import REPLY_LANGUAGE, TurnRunner
 from src.ui import JarvisUI
 from src.wake_word import wait_for_wake_word
 
@@ -91,18 +91,27 @@ _DISMISSAL_PHRASES = frozenset({
     "thanks jarvis", "goodbye",
     # German sign-offs (normalized: apostrophes dropped, umlauts kept). "Gute
     # Nacht" is deliberately NOT here, for the same reason as "good night"
-    # below — it must reach Claude and route to the evening wrap.
-    "das wars", "das war es", "das war alles", "das ist alles",
-    "das wäre alles", "das wärs", "nichts weiter", "nichts mehr",
-    "nein danke", "ich bin fertig", "wir sind fertig", "alles erledigt",
-    "danke jarvis", "vielen dank jarvis", "auf wiedersehen", "tschüss",
-    "tschüs",
+    # below — it must reach Claude and route to the evening wrap. Phrases
+    # that also end ordinary German questions live in _DISMISSAL_EXACT_DE.
+    "das wars", "das war es", "das ist alles", "das wäre alles", "das wärs",
+    "nein danke", "ich bin fertig", "wir sind fertig", "danke jarvis",
+    "vielen dank jarvis",
     # 2026-07-02 QA: "good night"/"goodnight" REMOVED — as dismissals they
     # short-circuited before the LLM on any follow-up/conversation-mode turn,
     # shadowing the M63 get_good_night wrap (security state + tomorrow's
     # schedule/weather). "Good night" now reaches Claude and routes to the
     # wrap; the reply's follow-up window then just elapses to standby.
 })
+
+# German sign-offs that are ALSO the tail of everyday questions ("Ist alles
+# erledigt?", "Gibt es heute nichts mehr?", "Was heißt auf Spanisch auf
+# Wiedersehen?"). They only count as the WHOLE utterance, after dropping a
+# leading "nein"/"okay"/"danke"/"jarvis", and never when it is a question.
+_DISMISSAL_EXACT_DE = frozenset({
+    "das war alles", "nichts weiter", "nichts mehr", "alles erledigt",
+    "auf wiedersehen", "tschüss", "tschüs",
+})
+_DISMISSAL_LEAD_DE = ("nein", "okay", "ok", "gut", "danke", "jarvis")
 
 # M51 follow-on (2026-05-21): a trailing courtesy masks a sign-off. "That is
 # all, thank you" ends with "thank you", not "that is all", so the bare suffix
@@ -125,11 +134,18 @@ def _is_dismissal(text: str) -> bool:
     norm = " ".join(re.sub(r"[^a-z0-9äöüß ]+", "", (text or "").lower()).split())
     if not norm:
         return False
+    is_question = (text or "").rstrip().endswith("?")
+
+    def _exact_de(s: str) -> bool:
+        words = s.split()
+        while words and words[0] in _DISMISSAL_LEAD_DE:
+            words = words[1:]
+        return " ".join(words) in _DISMISSAL_EXACT_DE
 
     def _suffix_match(s: str) -> bool:
-        return bool(s) and any(
+        return bool(s) and (any(
             s == p or s.endswith(" " + p) for p in _DISMISSAL_PHRASES
-        )
+        ) or (not is_question and _exact_de(s)))
 
     if _suffix_match(norm):
         return True
@@ -227,7 +243,7 @@ def listen_loop(
 
     # 2026-08-16 — the challenge listening window. Owned here (the only
     # consumer) and handed to security, which raises it once "Identifizieren
-    # Sie sich, Master." has finished playing and lowers it when the challenge
+    # Sie sich." has finished playing and lowers it when the challenge
     # resolves. Registered defensively: an older/stubbed watcher without the
     # setter simply never raises it, and the wake word is still the way in.
     challenge_listen = threading.Event()
@@ -1022,8 +1038,8 @@ def listen_loop(
                         followup = False
                         print("[conversation] mode OFF (voice)", file=sys.stderr)
                         runner.speak_line(
-                            _convo.stop_confirmation(transcript.language),
-                            transcript.language)
+                            _convo.stop_confirmation(REPLY_LANGUAGE),
+                            REPLY_LANGUAGE)
                         ui.set_state(State.IDLE)
                         continue
                 elif _convo.is_start_intent(transcript.text):
@@ -1034,8 +1050,8 @@ def listen_loop(
                     idle_empties = 0
                     print("[conversation] mode ON (voice)", file=sys.stderr)
                     runner.speak_line(
-                        _convo.start_confirmation(transcript.language),
-                        transcript.language)
+                        _convo.start_confirmation(REPLY_LANGUAGE),
+                        REPLY_LANGUAGE)
                     ui.set_state(State.IDLE)
                     continue
 
@@ -1066,8 +1082,8 @@ def listen_loop(
                         from src import conversation_mode as _convo_exit  # noqa: PLC0415
                         print("[conversation] mode OFF (sign-off)", file=sys.stderr)
                         runner.speak_line(
-                            _convo_exit.stop_confirmation(transcript.language),
-                            transcript.language)
+                            _convo_exit.stop_confirmation(REPLY_LANGUAGE),
+                            REPLY_LANGUAGE)
                     ui.set_state(State.IDLE)
                     followup = False
                     continue

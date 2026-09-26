@@ -968,13 +968,15 @@ _REINDEX_INTENT_DE_RE = re.compile(
 # disambiguator from ordinary "merk dir das" and from the face/voice
 # enrollment phrases. Group 'fact' is the payload. "speichere"/"notiere"
 # are also the first-person forms, so a preceding "ich" ("ich speichere
-# permanent alles in der Cloud") is a statement, not a command.
+# permanent alles in der Cloud") is a statement, not a command. The bare
+# colloquial "speicher"/"notier" only counts at the START of the utterance:
+# mid-sentence "Speicher" is the noun ("Ist der Speicher dauerhaft voll?").
 _DE_PERMANENT = r"(?:dauerhaft|permanent|f(?:ü|ue)r\s+immer|auf\s+dauer)"
 _REMEMBER_INTENT_DE_RE = re.compile(
-    r"(?<!\bich\s)"
-    r"\b(?:merk(?:e)?\s+dir|merken\s+sie\s+sich|speicher(?:e)?|"
-    r"speichern\s+sie|notier(?:e)?|notieren\s+sie)\b"
-    r"(?:\s+(?:bitte|das|dies|folgendes))*"
+    r"(?:(?<!\bich\s)\b(?:merk(?:e)?\s+dir|merken\s+sie\s+sich|speichere|"
+    r"speichern\s+sie|notiere|notieren\s+sie)"
+    r"|^\s*(?:(?:hey\s+)?jarvis[\s,:.!-]+)?(?:bitte[\s,]+)?(?:speicher|notier))\b"
+    r"(?:\s+(?:bitte|dir|das|dies|folgendes))*"
     r"(?:[\s,:-]+)?"
     + _DE_PERMANENT +
     r"[\s,:.-]+"

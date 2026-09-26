@@ -219,7 +219,7 @@ def dispatch(api_key: str, prompt: str) -> tuple[str | None, str | None]:
     """
     agent_id, env_id = ensure_resources(api_key)
     if not agent_id or not env_id:
-        return None, "die Ressourcen für den Hintergrundagenten sind nicht verfügbar"
+        return None, "Die Ressourcen für den Hintergrundagenten sind nicht verfügbar."
     try:
         client = _get_client(api_key)
         session = client.beta.sessions.create(
@@ -245,7 +245,9 @@ def dispatch(api_key: str, prompt: str) -> tuple[str | None, str | None]:
         return session.id, None
     except Exception as exc:  # noqa: BLE001
         print(f"[bgagent] dispatch failed: {exc}", file=sys.stderr)
-        return None, str(exc)[:200]
+        # The error is spoken later (background_tasks._spoken_form), so it
+        # is a fixed German sentence; the raw exception is in the log above.
+        return None, "Der Hintergrunddienst hat den Auftrag nicht angenommen."
 
 
 def poll(api_key: str, session_id: str) -> dict:
