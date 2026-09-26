@@ -67,7 +67,9 @@ WOLFRAM_TOOL = {
         "get_sports_info, news → get_news, the user's own setup → "
         "knowledge_search) nor for open-ended or current-events questions "
         "(use web_search). Returns one concise factual line; phrase the "
-        "spoken reply in your own voice."
+        "spoken reply in your own voice. WolframAlpha only understands "
+        "English: always send the query in English, even when the user "
+        "asked in German."
     ),
     "input_schema": {
         "type": "object",
@@ -180,7 +182,7 @@ def execute_wolfram_tool(params: dict) -> str:
     is a readable, voice-friendly string."""
     query = (params.get("query") or "").strip()
     if not query:
-        return "No query was provided for WolframAlpha, sir."
+        return "No query was provided for WolframAlpha, Master."
     if len(query) > _MAX_QUERY_LEN:
         query = query[:_MAX_QUERY_LEN]
 
@@ -198,7 +200,7 @@ def execute_wolfram_tool(params: dict) -> str:
     app_id = _app_id()
     if app_id is None:
         return (
-            "WolframAlpha queries need an AppID, sir. Set WOLFRAM_APP_ID in "
+            "WolframAlpha queries need an AppID, Master. Set WOLFRAM_APP_ID in "
             ".env — a free non-commercial key from "
             "developer.wolframalpha.com."
         )
@@ -207,7 +209,7 @@ def execute_wolfram_tool(params: dict) -> str:
 
     if status == "ok":
         return answer or (
-            f"WolframAlpha returned an empty answer for '{query}', sir."
+            f"WolframAlpha returned an empty answer for '{query}', Master."
         )
     if status == "nounder":
         return (
@@ -221,6 +223,6 @@ def execute_wolfram_tool(params: dict) -> str:
             ".env is a valid key from developer.wolframalpha.com."
         )
     return (
-        "I couldn't reach WolframAlpha just now, sir — it may be "
+        "I couldn't reach WolframAlpha just now, Master — it may be "
         "temporarily unavailable."
     )

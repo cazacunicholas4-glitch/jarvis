@@ -40,6 +40,18 @@ _DISCORD_TIMEOUT_SECONDS = 10.0
 # to clamp 1900 while send_discord_photo clamped 2000, both docstringed "2000").
 _DISCORD_CONTENT_LIMIT = 2000
 
+# German month names for the alert timestamps. Spelled out here instead of
+# locale.setlocale(), which is process-wide and not thread-safe.
+_MONTHS_DE = (
+    "Januar", "Februar", "März", "April", "Mai", "Juni",
+    "Juli", "August", "September", "Oktober", "November", "Dezember",
+)
+
+
+def _time_str_de(when: datetime) -> str:
+    """'14:15 Uhr am 11. Juni' — locale-independent German timestamp."""
+    return f"{when.hour}:{when:%M} Uhr am {when.day}. {_MONTHS_DE[when.month - 1]}"
+
 
 def send_discord_alert(
     webhook_url: str,
@@ -65,15 +77,15 @@ def send_discord_alert(
         return False
 
     when = when or datetime.now()
-    time_str = when.strftime("%I:%M %p on %b %d").lstrip("0")
+    time_str = _time_str_de(when)
 
     # The message format. Markdown-aware: Discord renders **bold** and the
     # 🚨 emoji at the start makes the push notification preview eye-catching
     # on the user's lock screen.
     content = (
-        f"🚨 **Security Alert** · {time_str}\n\n"
-        f"A person was detected in the monitored space and did not authenticate "
-        f"within the 15-second challenge window. Evidence attached."
+        f"🚨 **Sicherheitsalarm** · {time_str}\n\n"
+        f"Im überwachten Bereich wurde eine Person erkannt, die sich nicht "
+        f"innerhalb von 15 Sekunden authentifiziert hat. Beweisfoto im Anhang."
     )
     payload = {
         "content": content,
@@ -238,18 +250,18 @@ def send_email_alert(
         return False
 
     when = when or datetime.now()
-    time_str = when.strftime("%I:%M %p on %b %d").lstrip("0")
+    time_str = _time_str_de(when)
 
     msg = EmailMessage()
-    msg["Subject"] = f"Jarvis Security Alert — {time_str}"
+    msg["Subject"] = f"Jarvis-Sicherheitsalarm — {time_str}"
     msg["From"] = smtp_username
     # Comma-joined list is the standards-correct way to put N addresses in
     # a single To: header (RFC 5322 §3.6.3). Gmail / Outlook handle it fine.
     msg["To"] = ", ".join(recipients)
     msg.set_content(
-        f"Security Alert — {time_str}\n\n"
-        "A person was detected in the monitored space and did not authenticate "
-        "within the 15-second challenge window. Evidence attached.\n\n"
+        f"Sicherheitsalarm — {time_str}\n\n"
+        "Im überwachten Bereich wurde eine Person erkannt, die sich nicht "
+        "innerhalb von 15 Sekunden authentifiziert hat. Beweisfoto im Anhang.\n\n"
         "— Jarvis"
     )
     if image_bytes:

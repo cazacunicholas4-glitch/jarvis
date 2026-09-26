@@ -7,9 +7,9 @@ power-loss memory). Today that depends on *him* noticing the forecast. This
 module closes that gap — a background poll of the National Weather Service
 active-alerts feed for the home location that speaks up on its own:
 
-    "Sir — the National Weather Service has issued a Severe Thunderstorm
-     Warning, until 8 PM. With no UPS on the desktop, you may want to shut it
-     down before the power goes."
+    "Master — der US-Wetterdienst hat eine Warnung herausgegeben: Severe
+     Thunderstorm Warning. Gültig bis 20 Uhr. Da der Desktop-PC keine USV hat,
+     sollten Sie ihn vielleicht herunterfahren, bevor der Strom ausfällt."
 
 Almost entirely a recombination of the proven monitor pattern:
   - thread model  = calendar_monitor / homelab_monitor — a defensive daemon
@@ -164,7 +164,7 @@ def _parse_features(data: dict) -> list[WeatherAlert]:
             continue
         out.append(WeatherAlert(
             id=str(aid),
-            event=str(p.get("event") or "Weather alert"),
+            event=str(p.get("event") or "Wetterwarnung"),
             severity=str(p.get("severity") or "Unknown"),
             headline=str(p.get("headline") or ""),
             area=str(p.get("areaDesc") or ""),
@@ -218,29 +218,30 @@ def _should_announce(alert: WeatherAlert, announced: set[str],
 
 
 def _fmt_local_time(iso: str | None) -> str:
-    """NWS end time (ISO-8601 with offset) → a terse local clock string like
-    '8 PM' / '8:30 PM'. Empty string on missing/unparseable (caller omits)."""
+    """NWS end time (ISO-8601 with offset) → a terse German 24-hour local
+    clock string like '20 Uhr' / '20:30 Uhr'. Empty string on
+    missing/unparseable (caller omits)."""
     if not iso:
         return ""
     try:
         dt = datetime.fromisoformat(iso).astimezone()
     except (ValueError, TypeError):
         return ""
-    hour = dt.strftime("%I").lstrip("0") or "12"
     if dt.minute:
-        return f"{hour}:{dt.strftime('%M')} {dt.strftime('%p')}"
-    return f"{hour} {dt.strftime('%p')}"
+        return f"{dt.hour}:{dt.strftime('%M')} Uhr"
+    return f"{dt.hour} Uhr"
 
 
 def _alert_speech(alert: WeatherAlert) -> str:
     """The spoken announce text for a fired alert."""
-    text = (f"Sir — the National Weather Service has issued a {alert.event}.")
+    text = (f"Master — der US-Wetterdienst hat eine Warnung herausgegeben: "
+            f"{alert.event}.")
     ends = _fmt_local_time(alert.ends_iso)
     if ends:
-        text += f" In effect until {ends}."
+        text += f" Gültig bis {ends}."
     if _power_risk(alert.event):
-        text += (" With no UPS on the desktop, you may want to shut it down "
-                 "before the power goes.")
+        text += (" Da der Desktop-PC keine USV hat, sollten Sie ihn vielleicht "
+                 "herunterfahren, bevor der Strom ausfällt.")
     return text
 
 
@@ -388,7 +389,7 @@ class WeatherAlertMonitor:
               file=sys.stderr)
         self._safe_announce(text)
         if self._discord:
-            push = f"⛈ {alert.headline or alert.event}"
+            push = f"⛈ Wetterwarnung: {alert.headline or alert.event}"
             if alert.area:
                 push += f" — {alert.area}"
             threading.Thread(
@@ -444,19 +445,19 @@ def execute_weather_alerts_tool(params: dict) -> str:
     """Run the on-demand tool. Always returns a string — never raises."""
     location = (params.get("location") or "").strip() or _home_location()
     if not location:
-        return ("No location to check, sir — set JARVIS_HOME_LOCATION in .env "
+        return ("No location to check, Master — set JARVIS_HOME_LOCATION in .env "
                 "or tell me a place.")
     try:
         from src.weather import _geocode  # noqa: PLC0415
         hit = _geocode(location)
         if hit is None:
-            return f"I couldn't find '{location}' to check alerts, sir."
+            return f"I couldn't find '{location}' to check alerts, Master."
         lat, lon, display = hit
         alerts, err = fetch_active_alerts(lat, lon)
         if err or alerts is None:
-            return f"The weather-alert service is unavailable right now, sir ({err})."
+            return f"The weather-alert service is unavailable right now, Master ({err})."
         if not alerts:
-            return f"No active weather alerts for {display}, sir."
+            return f"No active weather alerts for {display}, Master."
         # Sort most-severe first so Claude reads the important one first.
         alerts = sorted(
             alerts,
@@ -471,4 +472,4 @@ def execute_weather_alerts_tool(params: dict) -> str:
         return "\n".join(lines)
     except Exception as exc:  # noqa: BLE001 — defensive
         print(f"[weather] get_weather_alerts failed: {exc}", file=sys.stderr)
-        return "I couldn't check the weather alerts just now, sir."
+        return "I couldn't check the weather alerts just now, Master."

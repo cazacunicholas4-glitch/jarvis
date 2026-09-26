@@ -137,7 +137,8 @@ class BackgroundTaskManager:
                 # for good. Age is the only signal that survives both cases.
                 task_store.update(
                     task_id, status="failed",
-                    error=f"gave up after {_MAX_TASK_HOURS} hours with no result",
+                    error=(f"Nach {_MAX_TASK_HOURS:g} Stunden gab es noch kein "
+                           f"Ergebnis, deshalb habe ich abgebrochen."),
                 )
                 continue
             state = background_agent.poll(self._api_key, session_id)
@@ -189,11 +190,11 @@ def _spoken_form(task: dict) -> str:
     prompt = (task.get("prompt") or "").strip()
     short = prompt if len(prompt) <= 60 else prompt[:57].rstrip() + "..."
     if task.get("status") == "done":
-        return f"Sir, I've finished looking into {short}. {task.get('result') or ''}".strip()
+        return f"Master, meine Recherche ist fertig: {short}. {task.get('result') or ''}".strip()
     if task.get("status") == "cancelled":
-        return f"I've stopped work on {short}, sir."
-    return (f"Sir, I wasn't able to finish looking into {short}. "
-            f"{task.get('error') or 'The task failed.'}")
+        return f"Ich habe die Arbeit eingestellt, Master: {short}."
+    return (f"Master, ich konnte die Recherche nicht abschließen: {short}. "
+            f"{task.get('error') or 'Die Aufgabe ist fehlgeschlagen.'}")
 
 
 def pending_reports() -> list[str]:
@@ -286,32 +287,32 @@ CANCEL_BACKGROUND_TASK_TOOL = {
 def execute_start_background_task(params: dict) -> str:
     """Never raises — an unavailable feature returns an honest sentence."""
     if not background_agent.enabled():
-        return ("Background tasks are switched off, sir. They can be enabled "
+        return ("Background tasks are switched off, Master. They can be enabled "
                 "with JARVIS_BACKGROUND_AGENTS=1 — note that unlike the rest "
                 "of me, that work runs on Anthropic's infrastructure.")
     prompt = (params.get("task") or "").strip()
     if not prompt:
-        return "I need to know what to look into, sir."
+        return "I need to know what to look into, Master."
 
     running = task_store.active()
     if len(running) >= _MAX_CONCURRENT:
-        return (f"I already have {len(running)} tasks running, sir, which is my "
+        return (f"I already have {len(running)} tasks running, Master, which is my "
                 f"limit. Ask me to cancel one first.")
 
     record = task_store.add(prompt)
     session_id, error = background_agent.dispatch(_api_key(), prompt)
     if not session_id:
         task_store.update(record["task_id"], status="failed", error=error)
-        return f"I couldn't start that, sir — {error or 'the service is unavailable'}."
+        return f"I couldn't start that, Master — {error or 'the service is unavailable'}."
     task_store.update(record["task_id"], session_id=session_id, status="running")
-    return (f"Working on it, sir. I'll look into that in the background and "
+    return (f"Working on it, Master. I'll look into that in the background and "
             f"report back — reference {record['task_id']}.")
 
 
 def execute_list_background_tasks(params: dict) -> str:  # noqa: ARG001 — no params
     tasks = task_store.all_tasks()
     if not tasks:
-        return "No background tasks, sir."
+        return "No background tasks, Master."
     live = [t for t in tasks if t.get("status") in ("pending", "running")]
     recent = [t for t in tasks if t.get("status") not in ("pending", "running")][-3:]
     lines: list[str] = []
@@ -319,19 +320,19 @@ def execute_list_background_tasks(params: dict) -> str:  # noqa: ARG001 — no p
         lines.append(f"{t['task_id']}: working on \"{t.get('prompt', '')[:60]}\"")
     for t in recent:
         lines.append(f"{t['task_id']}: {t.get('status')} — \"{t.get('prompt', '')[:60]}\"")
-    return "\n".join(lines) if lines else "No background tasks, sir."
+    return "\n".join(lines) if lines else "No background tasks, Master."
 
 
 def execute_cancel_background_task(params: dict) -> str:
     task_id = (params.get("task_id") or "").strip()
     task = task_store.get(task_id)
     if not task:
-        return f"I have no task with the id {task_id}, sir."
+        return f"I have no task with the id {task_id}, Master."
     if task.get("status") not in ("pending", "running"):
-        return f"That task already finished, sir — it's {task.get('status')}."
+        return f"That task already finished, Master — it's {task.get('status')}."
     if task.get("session_id"):
         background_agent.cancel(_api_key(), task["session_id"])
     # Marked cancelled regardless: the user's intent is honoured locally even
     # if the remote archive call failed.
     task_store.update(task_id, status="cancelled", delivered=True)
-    return "Stopped, sir."
+    return "Stopped, Master."

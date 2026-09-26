@@ -442,13 +442,13 @@ def _search(query: str, days_back: int | None, limit: int,
     sessions = _sessions_dir()
     if not sessions.is_dir():
         return (
-            "We don't have any recorded conversation history yet, sir."
+            "We don't have any recorded conversation history yet, Master."
         )
 
     terms = _query_terms(query)
     if not terms:
         return (
-            f"I couldn't make a searchable query out of '{query}', sir — "
+            f"I couldn't make a searchable query out of '{query}', Master — "
             f"try naming what it was about."
         )
 
@@ -456,12 +456,12 @@ def _search(query: str, days_back: int | None, limit: int,
         exchanges = _collect_exchanges(days_back)
     except Exception as exc:  # noqa: BLE001 — recall must never break a turn
         print(f"[recall] collect failed: {exc}", file=sys.stderr)
-        return "I couldn't read our conversation history just now, sir."
+        return "I couldn't read our conversation history just now, Master."
 
     if not exchanges:
         window = f" in the last {days_back} days" if days_back else ""
         return (
-            f"I don't have any recorded conversations{window} to search, sir."
+            f"I don't have any recorded conversations{window} to search, Master."
         )
 
     # M82 — speaker filter applied BEFORE ranking, so a per-person query only
@@ -472,7 +472,7 @@ def _search(query: str, days_back: int | None, limit: int,
         if not exchanges:
             return (
                 f"I don't have any recorded turns from {speaker} to search, "
-                f"sir."
+                f"Master."
             )
 
     ranked = _rank_exchanges(exchanges, terms, query)
@@ -481,7 +481,7 @@ def _search(query: str, days_back: int | None, limit: int,
         window = f" from the last {days_back} days" if days_back else ""
         return (
             f"I couldn't find anything{who} in our past conversations{window} "
-            f"about '{query}', sir."
+            f"about '{query}', Master."
         )
 
     hits = ranked[:limit]

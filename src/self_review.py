@@ -262,13 +262,13 @@ def format_review(data: dict, top: int = 4) -> str:
     """Render for speech: a verdict first, then only what earns a mention."""
     sessions = data["sessions"]
     if not sessions and not data["concerning"]:
-        return "I've no log activity to review, sir."
+        return "I've no log activity to review, Master."
 
     sigs = data["signatures"]
     days = data["days"]
 
     if not sigs:
-        return (f"Nothing of concern in the last {days} days, sir — "
+        return (f"Nothing of concern in the last {days} days, Master — "
                 f"{sessions} sessions, no errors logged.")
 
     # Spoken aloud, so singulars have to be real singulars: "I've run 1 times
@@ -334,4 +334,4 @@ def execute_self_review(params: dict) -> str:
         return format_review(scan(days))
     except Exception as exc:  # noqa: BLE001
         print(f"[selfreview] scan failed: {exc}", file=sys.stderr)
-        return "I couldn't review my logs just now, sir."
+        return "I couldn't review my logs just now, Master."

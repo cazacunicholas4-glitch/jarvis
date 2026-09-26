@@ -243,39 +243,39 @@ def _validate_repeat(repeat: dict) -> dict | str:
     """Validate + normalize a recurrence spec from the tool input. Returns a
     clean spec dict, or a voice-friendly error string for Claude. Never raises."""
     if not isinstance(repeat, dict):
-        return "That recurrence didn't make sense, sir."
+        return "That recurrence didn't make sense, Master."
     kind = str(repeat.get("kind") or "").strip().lower()
     if kind == "interval":
         try:
             secs = int(repeat.get("interval_seconds"))
         except (TypeError, ValueError):
-            return "I need a valid interval for a repeating reminder, sir."
+            return "I need a valid interval for a repeating reminder, Master."
         if secs < _MIN_INTERVAL_SEC:
-            return "That interval is too short, sir — a minute is the tightest I'll repeat."
+            return "That interval is too short, Master — a minute is the tightest I'll repeat."
         return {"kind": "interval", "interval_seconds": secs}
     if kind == "weekly":
         try:
             days = sorted({int(d) for d in (repeat.get("weekdays") or [])})
         except (TypeError, ValueError):
-            return "I couldn't read those weekdays, sir."
+            return "I couldn't read those weekdays, Master."
         if not days or any(d < 0 or d > 6 for d in days):
-            return "I need valid weekdays — Monday to Sunday — for that, sir."
+            return "I need valid weekdays — Monday to Sunday — for that, Master."
         hhmm = _parse_hhmm(repeat.get("time"))
         if hhmm is None:
-            return "I need a valid time of day for that repeating reminder, sir."
+            return "I need a valid time of day for that repeating reminder, Master."
         return {"kind": "weekly", "weekdays": days, "time": f"{hhmm[0]:02d}:{hhmm[1]:02d}"}
     if kind == "monthly":
         try:
             day = int(repeat.get("day"))
         except (TypeError, ValueError):
-            return "I need a day of the month for that, sir."
+            return "I need a day of the month for that, Master."
         if day < 1 or day > 31:
-            return "That day of the month isn't valid, sir."
+            return "That day of the month isn't valid, Master."
         hhmm = _parse_hhmm(repeat.get("time"))
         if hhmm is None:
-            return "I need a valid time of day for that monthly reminder, sir."
+            return "I need a valid time of day for that monthly reminder, Master."
         return {"kind": "monthly", "day": day, "time": f"{hhmm[0]:02d}:{hhmm[1]:02d}"}
-    return "I can repeat reminders by interval, weekly, or monthly, sir."
+    return "I can repeat reminders by interval, weekly, or monthly, Master."
 
 
 def _next_occurrence(repeat: dict, after: datetime) -> datetime | None:
@@ -376,7 +376,8 @@ SET_REMINDER_TOOL = {
                 "type": "string",
                 "description": (
                     "What Jarvis says aloud when it fires — the task itself, "
-                    "e.g. 'check the printer'. Do not include 'remind you to'."
+                    "written in German, e.g. 'den Drucker prüfen'. Do not "
+                    "include 'remind you to' / 'Sie erinnern'."
                 ),
             },
             "delay_seconds": {
@@ -529,30 +530,30 @@ def _resolve_explicit_fire(params: dict) -> "datetime | str | None":
     if delay is None and not at:
         return None
     if delay is not None and at:
-        return "Give me either a delay or an absolute time, sir — not both."
+        return "Give me either a delay or an absolute time, Master — not both."
 
     now = datetime.now()
     if delay is not None:
         try:
             delay = int(delay)
         except (TypeError, ValueError):
-            return "I couldn't read that delay, sir."
+            return "I couldn't read that delay, Master."
         if delay <= 0:
-            return "That time isn't in the future, sir."
+            return "That time isn't in the future, Master."
         fire_at = now + timedelta(seconds=delay)
     else:
         parsed = _parse_iso(at)
         if parsed is None:
-            return "I couldn't read that time, sir."
+            return "I couldn't read that time, Master."
         if parsed <= now:
             return (
-                f"{_human_dt(parsed)} has already passed, sir — "
+                f"{_human_dt(parsed)} has already passed, Master — "
                 f"shall I set it for another time?"
             )
         fire_at = parsed
 
     if fire_at > now + timedelta(days=_MAX_HORIZON_DAYS):
-        return "That's further out than I can schedule, sir."
+        return "That's further out than I can schedule, Master."
     return fire_at
 
 
@@ -560,7 +561,7 @@ def execute_set_reminder(params: dict) -> str:
     """Schedule a reminder. Never raises — every failure is a readable string."""
     message = (params.get("message") or "").strip()
     if not message:
-        return "I need to know what to remind you about, sir."
+        return "I need to know what to remind you about, Master."
     if len(message) > _MAX_MESSAGE_LEN:
         message = message[:_MAX_MESSAGE_LEN]
 
@@ -570,7 +571,7 @@ def execute_set_reminder(params: dict) -> str:
     # clear error instead of a silent never-firing-as-expected.
     action = (params.get("action") or "").strip().lower() or None
     if action and action not in {"briefing", "good_night", "background_task"}:
-        return (f"I don't know the '{action}' action, sir — only "
+        return (f"I don't know the '{action}' action, Master — only "
                 f"'briefing' and 'good_night' are supported right now.")
 
     # M54: a recurring reminder. Normally the first occurrence is derived from
@@ -596,7 +597,7 @@ def execute_set_reminder(params: dict) -> str:
         if fire_at is None:
             fire_at = _next_occurrence(spec, datetime.now())
         if fire_at is None:
-            return "I couldn't work out when that should recur, sir."
+            return "I couldn't work out when that should recur, Master."
         rec = add(message, fire_at, repeat=spec, action=action)
         kind_label = _action_label(action, capitalised=False)
         return (
@@ -608,7 +609,7 @@ def execute_set_reminder(params: dict) -> str:
     if isinstance(fire_at, str):
         return fire_at  # invalid at/delay — voice-friendly error
     if fire_at is None:
-        return "I need a time for the reminder, sir."
+        return "I need a time for the reminder, Master."
 
     rec = add(message, fire_at, action=action)
     kind_label = _action_label(action, capitalised=True)
@@ -622,7 +623,7 @@ def execute_list_reminders(params: dict) -> str:  # noqa: ARG001 — no params
     """Read back pending reminders. Never raises."""
     items = list_pending()
     if not items:
-        return "You have no reminders set, sir."
+        return "You have no reminders set, Master."
     lines = [f"{len(items)} reminder(s) pending:"]
     for r in items:
         dt = _parse_iso(r.get("fire_at", ""))
@@ -651,19 +652,19 @@ def execute_cancel_reminder(params: dict) -> str:
     query = (params.get("query") or "").strip()
     if not rid and not query:
         return (
-            "Which reminder should I cancel, sir? Name it, or I can list "
+            "Which reminder should I cancel, Master? Name it, or I can list "
             "them first."
         )
     result = cancel(rid=rid or None, query=query or None)
     if result is None:
-        return "I couldn't find a matching reminder, sir."
+        return "I couldn't find a matching reminder, Master."
     if isinstance(result, list):
         opts = "; ".join(
             f"\"{r.get('message', '?')}\" (id: {r.get('id', '?')})"
             for r in result
         )
         return (
-            f"Several reminders match that, sir — which one? {opts}"
+            f"Several reminders match that, Master — which one? {opts}"
         )
     # Report what's left, so Claude states "what remains" from fact rather
     # than inferring it from a stale earlier list in the conversation (which
@@ -675,7 +676,7 @@ def execute_cancel_reminder(params: dict) -> str:
     else:
         tail = " Nothing else is pending."
     return (
-        f"Cancelled, sir — \"{result.get('message', '?')}\" will no longer "
+        f"Cancelled, Master — \"{result.get('message', '?')}\" will no longer "
         f"fire.{tail}"
     )
 
@@ -687,22 +688,23 @@ def _fire_text(rec: dict, now: datetime) -> str:
     overdue (it came due while Jarvis was off, then fired on the first poll
     after restart) is flagged as belated so the user isn't misled about the
     time."""
-    msg = (rec.get("message") or "").strip() or "your reminder"
+    msg = (rec.get("message") or "").strip() or "Ihre Erinnerung"
     fire_at = _parse_iso(rec.get("fire_at", ""))
     if fire_at is not None and (now - fire_at).total_seconds() > 90:
-        return f"Sir, a belated reminder — {msg}. This was due while I was away."
-    return f"Sir, a reminder — {msg}."
+        return (f"Master, eine verspätete Erinnerung: {msg}. "
+                "Sie war fällig, während ich nicht aktiv war.")
+    return f"Master, eine Erinnerung: {msg}."
 
 
 def _greeting_for(hour: int) -> str:
     """Time-of-day greeting for a scheduled briefing fire — morning before
     noon, afternoon up to 17:00, evening after. A briefing scheduled for 6 pm
-    shouldn't be greeted with 'Good morning, sir.'"""
+    shouldn't be greeted with 'Guten Morgen, Master.'"""
     if hour < 12:
-        return "Good morning, sir."
+        return "Guten Morgen, Master."
     if hour < 17:
-        return "Good afternoon, sir."
-    return "Good evening, sir."
+        return "Guten Tag, Master."
+    return "Guten Abend, Master."
 
 
 def _compose_briefing(rec: dict) -> str:  # noqa: ARG001 — signature is shared
@@ -729,7 +731,7 @@ def _compose_background_task(rec: dict) -> str:
     from src.background_tasks import execute_start_background_task  # noqa: PLC0415
     prompt = (rec.get("message") or "").strip()
     if not prompt:
-        return "Sir, a scheduled research task had no subject."
+        return "Master, a scheduled research task had no subject."
     return execute_start_background_task({"task": prompt})
 
 
@@ -739,12 +741,21 @@ def _compose_background_task(rec: dict) -> str:
 # plus an entry in the set in `execute_set_reminder`. The structure scales.
 _COMPOSITION_ACTIONS: dict[str, tuple[Callable[[], str], str, str, str]] = {
     "briefing":   (_compose_briefing,   "scheduled briefing", " (briefing)",
-                   "Sir, the scheduled briefing failed to compile."),
+                   "Master, das geplante Briefing konnte nicht erstellt werden."),
     "good_night": (_compose_good_night, "evening wrap",       " (good night)",
-                   "Sir, the evening wrap failed to compile."),
+                   "Master, der Tagesabschluss konnte nicht erstellt werden."),
     "background_task": (_compose_background_task, "scheduled research",
                         " (research)",
-                        "Sir, the scheduled research task failed to start."),
+                        "Master, die geplante Recherche konnte nicht gestartet werden."),
+}
+
+# The spoken heading before a fired composition ("Guten Morgen, Master. Ihr
+# geplantes Briefing:"). Separate from the English noun above, which is part of
+# the set_reminder tool confirmation Claude reads.
+_SPOKEN_HEADING_DE = {
+    "briefing": "Ihr geplantes Briefing",
+    "good_night": "Ihr Tagesabschluss",
+    "background_task": "Ihre geplante Recherche",
 }
 
 
@@ -777,9 +788,28 @@ def _push(notify: "Callable[[str], None] | None", text: str) -> None:
         print(f"[reminders] notify push failed: {exc}", file=sys.stderr)
 
 
+def _translate_or_keep(text: str,
+                       translate: "Callable[[str], str] | None") -> str:
+    """Turn a composed (English) briefing into German before it is read out
+    verbatim. `translate` is wired in main.py to the interpreter's persona-free
+    translation call; None (tests, no API key) keeps the text unchanged. Any
+    failure or empty result also keeps the original — a scheduled briefing in
+    English beats a silent one."""
+    if translate is None or not text:
+        return text
+    try:
+        translated = (translate(text) or "").strip()
+    except Exception as exc:  # noqa: BLE001 — never lose the briefing
+        print(f"[reminders] translation failed, speaking original: {exc}",
+              file=sys.stderr)
+        return text
+    return translated or text
+
+
 def _fire_composition(rec: dict, announce: Callable[[str], None],
                       now: datetime,
-                      notify: "Callable[[str], None] | None" = None) -> None:
+                      notify: "Callable[[str], None] | None" = None,
+                      translate: "Callable[[str], str] | None" = None) -> None:
     """M59 + M63 — a reminder with an action in _COMPOSITION_ACTIONS fires
     that composition tool instead of speaking its static message. Runs on a
     throwaway thread because composition fetches weather/news/etc. and can
@@ -788,7 +818,11 @@ def _fire_composition(rec: dict, announce: Callable[[str], None],
 
     `notify` (optional): the same composed text is also pushed to the remote
     sink (Discord) so a scheduled briefing / good-night reaches the user when
-    they're away from the PC."""
+    they're away from the PC.
+
+    `translate` (optional): the composers build English text (they double as
+    tool results for Claude); the spoken/pushed copy is translated to German
+    first. See _translate_or_keep."""
     rid = rec.get("id", "?")
     action = rec.get("action") or ""
     entry = _COMPOSITION_ACTIONS.get(action)
@@ -811,8 +845,10 @@ def _fire_composition(rec: dict, announce: Callable[[str], None],
             announce(failed_phrase)
             _push(notify, failed_phrase)
             return
+        text = _translate_or_keep(text, translate)
         greeting = _greeting_for(now.hour)
-        full = f"{greeting} Your {noun}:\n\n{text}"
+        heading = _SPOKEN_HEADING_DE.get(action, noun)
+        full = f"{greeting} {heading}:\n\n{text}"
         announce(full)
         _push(notify, full)
 
@@ -822,14 +858,15 @@ def _fire_composition(rec: dict, announce: Callable[[str], None],
 
 
 def _fire_one(rec: dict, now: datetime, announce: Callable[[str], None],
-              notify: "Callable[[str], None] | None" = None) -> None:
+              notify: "Callable[[str], None] | None" = None,
+              translate: "Callable[[str], str] | None" = None) -> None:
     """Deliver one due reminder to all sinks: the local `announce` (speak +
     console) and the optional remote `notify` (Discord). Composition reminders
     (briefing / good_night) go through `_fire_composition` (async worker);
     plain reminders speak `_fire_text` synchronously. Extracted from
     run_scheduler so the fan-out is unit-testable without the poll loop."""
     if rec.get("action") in _COMPOSITION_ACTIONS:
-        _fire_composition(rec, announce, now, notify)
+        _fire_composition(rec, announce, now, notify, translate)
     else:
         text = _fire_text(rec, now)
         announce(text)
@@ -841,6 +878,7 @@ def run_scheduler(
     stop_event: threading.Event,
     poll_sec: float = 10.0,
     notify: "Callable[[str], None] | None" = None,
+    translate: "Callable[[str], str] | None" = None,
 ) -> None:
     """Daemon loop: every ~poll_sec, fire any due reminders via `announce`
     (main.py's WASAPI-safe Announcer path). Polls immediately on start, so
@@ -857,7 +895,10 @@ def run_scheduler(
     `notify` (optional, 2026-06-02): a second, remote sink (Discord push). When
     given, every fired reminder's text is also pushed there so reminders reach
     the user when away from the PC. Independent of `announce` and fail-soft —
-    a push failure never affects the spoken path or the loop."""
+    a push failure never affects the spoken path or the loop.
+
+    `translate` (optional): passed through to _fire_composition so scheduled
+    briefings are read out in German."""
     print("[reminders] scheduler thread started", file=sys.stderr)
     while not stop_event.is_set():
         try:
@@ -868,7 +909,7 @@ def run_scheduler(
                 print(f"[reminders] firing {rid}: "
                       f"{rec.get('message')} (action={action or '-'})",
                       file=sys.stderr)
-                _fire_one(rec, now, announce, notify)
+                _fire_one(rec, now, announce, notify, translate)
         except Exception as exc:  # noqa: BLE001 — keep the thread alive
             print(f"[reminders] scheduler poll failed: {exc}", file=sys.stderr)
         stop_event.wait(poll_sec)

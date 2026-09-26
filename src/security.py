@@ -606,7 +606,7 @@ class SecurityWatcher:
             print(f"[security] CHALLENGE cleared by {method} auth",
                   file=sys.stderr)
 
-        self._safe_call(self._announce, "Welcome back, sir.",
+        self._safe_call(self._announce, "Willkommen zurück, Master.",
                         label=f"welcome-back ({method})")
         return True
 
@@ -766,7 +766,7 @@ class SecurityWatcher:
         # Terse by design (2026-05-19): the project persona spec is "short,
         # understated J.A.R.V.I.S." — and a shorter announce is also a
         # smaller collision surface for the cooperative speech gate.
-        self._safe_call(self._announce, "Standing watch, sir.",
+        self._safe_call(self._announce, "Ich halte Wache, Master.",
                         label="announce on activate")
 
         if self._thread is None or not self._thread.is_alive():
@@ -805,7 +805,7 @@ class SecurityWatcher:
         if was_locked:
             self._safe_call(self._on_locked_changed, False,
                             label="on_locked_changed(False)")
-        self._safe_call(self._announce, "Standing down, sir.",
+        self._safe_call(self._announce, "Wache beendet, Master.",
                         label="announce on deactivate")
 
     def shutdown(self) -> None:
@@ -1115,7 +1115,7 @@ class SecurityWatcher:
             print(f"[security] motion ({source}) — firing announcement (M34 mode)",
                   file=sys.stderr)
             self._safe_call(self._announce,
-                            "Sir — I'm detecting movement in the monitored space.",
+                            "Master — ich erkenne Bewegung im überwachten Bereich.",
                             label="movement announce")
             return
 
@@ -1158,8 +1158,9 @@ class SecurityWatcher:
             # timer still runs; reciting the number adds nothing the user or
             # an intruder needs, and the shorter prompt is a smaller speech-
             # gate collision surface. Persona spec: short, understated.
+            # No "Master" here: the person in frame may be an intruder.
             self._announce(
-                "Identify yourself, sir.",
+                "Identifizieren Sie sich.",
                 on_done=_start_challenge_timer,
             )
         except Exception as exc:  # noqa: BLE001
@@ -1261,8 +1262,8 @@ class SecurityWatcher:
         self._safe_call(self._on_locked_changed, True, label="on_locked_changed(True)")
         self._safe_call(
             self._announce,
-            "Identity not confirmed. Authorities have been notified. "
-            "Images of the intruder have been transmitted to law enforcement.",
+            "Identität nicht bestätigt. Die Behörden wurden benachrichtigt. "
+            "Bilder des Eindringlings wurden an die Polizei übermittelt.",
             label="deterrent announce",
         )
 
@@ -1350,7 +1351,8 @@ class SecurityWatcher:
             print(f"[security] ultralytics import failed: {exc}", file=sys.stderr)
             try:
                 self._announce(
-                    "Security model unavailable, sir. The vision library isn't installed."
+                    "Das Sicherheitsmodell ist nicht verfügbar, Master. "
+                    "Die Bibliothek für die Bilderkennung ist nicht installiert."
                 )
             finally:
                 self._auto_disarm()
@@ -1370,7 +1372,8 @@ class SecurityWatcher:
             )
             try:
                 self._announce(
-                    "Security model failed to load, sir. Check the logs."
+                    "Das Sicherheitsmodell konnte nicht geladen werden, Master. "
+                    "Bitte prüfen Sie die Logs."
                 )
             finally:
                 self._auto_disarm()
@@ -1651,8 +1654,8 @@ class SecurityWatcher:
         # though the UI indicator flips immediately via _auto_disarm.
         self._safe_call(
             self._announce,
-            "Sir, I'm consuming an unusual amount of memory. "
-            "I'm standing down as a precaution.",
+            "Master, ich verbrauche ungewöhnlich viel Arbeitsspeicher. "
+            "Ich beende die Überwachung vorsorglich.",
             label="memory watchdog announce",
         )
         self._auto_disarm()
@@ -1703,12 +1706,35 @@ class SecurityWatcher:
 # Loose patterns — Whisper sometimes hallucinates extra words ("Activate THE
 # security please"). False-positive tolerance is fine here: arming/disarming
 # is idempotent + low-impact, and the keywords don't occur in casual chat.
+#
+# German alternatives are ADDITIVE (the English ones are unchanged). They are
+# tighter than the English because every transcript passes through here before
+# Claude, and "Sicherheit" IS casual German: "mit Sicherheit" means
+# "certainly", "zur Sicherheit" means "to be safe". So activation always needs
+# a verb ("aktiviere die Sicherheit", "schalten Sie den Sicherheitsmodus ein",
+# "Alarmanlage scharf schalten") — a bare "Sicherheit an/ein" never arms — the
+# bare "Sicherheit aus" skips "mit/zur Sicherheit aus…", and "entschärfen"
+# only counts with a security noun or as the whole utterance (so "einen
+# Streit entschärfen" still reaches Claude).
+_DE_SECURITY_NOUN = r"(?:sicherheit(?:smodus|ssystem)?|alarmanlage)"
+_DE_ARTICLE = r"(?:sie\s+)?(?:bitte\s+)?(?:(?:die|den|das)\s+)?"
 
 _ACTIVATE_RE = re.compile(
-    r"\b(activate|engage|enable|arm|turn\s+on)\b.*\bsecurity\b",
+    r"\b(activate|engage|enable|arm|turn\s+on)\b.*\bsecurity\b"
+    rf"|\baktivier(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\b"
+    rf"|\bschalt(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\s+(?:bitte\s+)?(?:ein|an|scharf)\b"
+    rf"|\b{_DE_SECURITY_NOUN}\s+(?:aktivieren|einschalten|anschalten|scharf\s*schalten)\b",
     re.IGNORECASE,
 )
 _DEACTIVATE_RE = re.compile(
-    r"\b(stand\s+down|disarm|deactivate|disable|security\s+off|turn\s+off\s+security)\b",
+    r"\b(stand\s+down|disarm|deactivate|disable|security\s+off|turn\s+off\s+security)\b"
+    rf"|\bdeaktivier(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\b"
+    rf"|\bschalt(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\s+(?:bitte\s+)?(?:aus|ab)\b"
+    rf"|\b{_DE_SECURITY_NOUN}\s+(?:deaktivieren|ausschalten|abschalten|entsch(?:ä|ae)rfen)\b"
+    rf"|\bentsch(?:ä|ae)rf(?:e|en)?\s+{_DE_ARTICLE}{_DE_SECURITY_NOUN}\b"
+    r"|^\W*(?:jarvis\W+)?(?:bitte\s+)?entsch(?:ä|ae)rf(?:e|en)(?:\s+bitte)?\W*$"
+    r"|(?<!\bmit\s)(?<!\bzur\s)\bsicherheit\s+aus\b"
+    r"|\b(?:sicherheitsmodus|sicherheitssystem|alarmanlage)\s+aus\b"
+    r"|\bwache\s+beenden\b|\bbeende\s+(?:die\s+)?wache\b",
     re.IGNORECASE,
 )

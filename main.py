@@ -151,11 +151,24 @@ def main() -> None:
     )
     if _reminder_notify is not None:
         print("[reminders] Discord push on fire: enabled", file=sys.stderr)
+
+    # Scheduled briefings / evening wraps are composed in English (the
+    # composers double as tool results Claude reads) and read out verbatim, so
+    # the spoken + pushed copy is translated to German first with the
+    # interpreter's persona-free translation call. A failure (no key, network)
+    # raises here and reminders._translate_or_keep speaks the original.
+    def _reminder_translate(text: str) -> str:
+        from src.llm import stream_translation  # noqa: PLC0415 — lazy
+        return "".join(stream_translation(
+            api_key=cfg.anthropic_api_key, text=text, target_lang="de",
+            model=cfg.claude_model, max_tokens=4096,
+        ))
+
     reminder_stop = threading.Event()
     threading.Thread(
         target=_run_reminder_scheduler,
         args=(lambda t: _announce(t, label="⏰"), reminder_stop),
-        kwargs={"notify": _reminder_notify},
+        kwargs={"notify": _reminder_notify, "translate": _reminder_translate},
         name="ReminderScheduler",
         daemon=True,
     ).start()
@@ -297,7 +310,7 @@ def main() -> None:
                 _announce(result.message)
             except Exception as exc:  # defensive — never strand the trigger
                 print(f"[knowledge] reindex trigger failed: {exc}", file=sys.stderr)
-                _announce("I couldn't update my knowledge, sir.")
+                _announce("Ich konnte mein Wissen nicht aktualisieren, Master.")
 
         threading.Thread(target=_work, daemon=True, name="kb-reindex").start()
 
@@ -309,7 +322,7 @@ def main() -> None:
                 _announce(_knowledge.remember_fact(fact))
             except Exception as exc:
                 print(f"[knowledge] remember trigger failed: {exc}", file=sys.stderr)
-                _announce("I couldn't save that, sir.")
+                _announce("Das konnte ich nicht speichern, Master.")
 
         threading.Thread(target=_work, daemon=True, name="kb-remember").start()
 
@@ -382,12 +395,15 @@ def main() -> None:
             return
         from src.vision_describe import describe_scene  # noqa: PLC0415
         from src.notifications import send_discord_photo  # noqa: PLC0415
+        from src.sound_detector import rule_display_name  # noqa: PLC0415
         desc = describe_scene(
             jpeg, event_name,
             api_key=cfg.anthropic_api_key, model=cfg.claude_model,
         )
-        pretty = event_name.replace("_", " ")
-        caption = f"👁 {desc}" if desc else f"👁 I heard {pretty} — here's the room, sir."
+        # German display name for the rule key (the key itself stays English).
+        pretty = rule_display_name(event_name)
+        caption = (f"👁 {desc}" if desc else
+                   f"👁 Geräusch erkannt: {pretty}. Hier ist der Raum, Master.")
         send_discord_photo(cfg.discord_webhook_url, caption, jpeg,
                            image_filename="acoustic.jpg")
 

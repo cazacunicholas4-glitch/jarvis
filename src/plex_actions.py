@@ -60,7 +60,7 @@ PLEX_ACTION_TOOL = {
         "Perform a DESTRUCTIVE action on the Plex laptop: restart the Plex "
         "Media Server, refresh a library (re-scan files), or empty Plex's "
         "trash for a library. ALWAYS requires explicit user confirmation — "
-        "ask in plain language first ('Confirm: restart Plex?'), wait for "
+        "ask in plain language first ('Bestätigen Sie: Plex neu starten?'), wait for "
         "an explicit yes, THEN call this tool with confirmed=true. The tool "
         "rejects calls with confirmed=false or omitted as a safety gate. "
         "For diagnostic-only queries use plex_logs_tail / plex_logs_search "

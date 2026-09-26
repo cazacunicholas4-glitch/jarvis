@@ -75,6 +75,8 @@ Your final message is the whole deliverable — it is read back to the user \
 aloud or placed in a morning briefing, and they will not see your working. \
 Write it for someone who has been asleep:
 
+- Write the final message in German, using the formal "Sie". If you address \
+the user, call him "Master", never "sir".
 - Open with the answer or the single most useful finding, in one sentence.
 - Then the supporting detail, in short paragraphs. No headers, no bullet \
 markup, no tables — this may be spoken.
@@ -217,7 +219,7 @@ def dispatch(api_key: str, prompt: str) -> tuple[str | None, str | None]:
     """
     agent_id, env_id = ensure_resources(api_key)
     if not agent_id or not env_id:
-        return None, "background agent resources are not available"
+        return None, "die Ressourcen für den Hintergrundagenten sind nicht verfügbar"
     try:
         client = _get_client(api_key)
         session = client.beta.sessions.create(
@@ -273,7 +275,7 @@ def poll(api_key: str, session_id: str) -> dict:
             # than something to wait on.
             if stop_type == "requires_action":
                 return {"status": "failed", "result": None,
-                        "error": "session is waiting on a tool this agent does not provide"}
+                        "error": "Die Sitzung wartet auf ein Werkzeug, das dieser Agent nicht hat."}
             text = _final_text(client, session_id)
             if not text:
                 # Idle with nothing said yet. A session is created idle and only
@@ -290,7 +292,7 @@ def poll(api_key: str, session_id: str) -> dict:
             if text:
                 return {"status": "done", "result": text, "error": None}
             return {"status": "failed", "result": None,
-                    "error": "session terminated without producing a result"}
+                    "error": "Die Sitzung wurde ohne Ergebnis beendet."}
 
         return {"status": "running", "result": None, "error": None}
     except Exception as exc:  # noqa: BLE001

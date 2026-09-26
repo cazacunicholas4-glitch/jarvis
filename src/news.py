@@ -357,7 +357,7 @@ def execute_news_tool(params: dict) -> str:
     items = _collect(category)
     if not items:
         return (
-            f"I couldn't reach the {category} news feeds just now, sir — "
+            f"I couldn't reach the {category} news feeds just now, Master — "
             f"they may be temporarily unavailable."
         )
 
@@ -375,7 +375,7 @@ def execute_news_tool(params: dict) -> str:
         if not filtered:
             return (
                 f"None of the current {category} headlines mention "
-                f"'{topic}', sir. These feeds are a fixed set — for a "
+                f"'{topic}', Master. These feeds are a fixed set — for a "
                 f"deeper search I'd need the web."
             )
         items = filtered

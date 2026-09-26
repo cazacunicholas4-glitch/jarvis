@@ -133,8 +133,8 @@ def enroll_from_frames(
     enrollment where the user is cooperating with the camera.
 
     Returns (success, message). The message is user-facing for both the
-    tray popup and the voice flow ("Look at the camera, sir → here's how
-    enrollment went, sir").
+    tray popup and the voice flow ("Bitte halten Sie still, Master" → how
+    enrollment went, in German).
 
     Encoding strategy: per-frame encodings are MEAN-averaged into one
     (128,) vector. Averaging is the standard way to smooth pose/lighting
@@ -143,9 +143,9 @@ def enroll_from_frames(
     frames before saving; otherwise we reject and ask for a retry.
     """
     if not _ensure_imported():
-        return False, "Face recognition isn't available, sir."
+        return False, "Die Gesichtserkennung ist nicht verfügbar, Master."
     if not frames:
-        return False, "No frames were captured, sir."
+        return False, "Es wurden keine Bilder aufgenommen, Master."
 
     encodings: list[np.ndarray] = []
     rejected_multiface = 0
@@ -184,13 +184,19 @@ def enroll_from_frames(
         # No usable frames at all — surface the dominant failure reason
         # so the user knows what to fix.
         if rejected_multiface > rejected_noface:
-            return False, "I saw more than one face in the frame, sir. Try again alone."
-        return False, "I couldn't see your face clearly, sir. Try again with more light."
+            return False, (
+                "Ich habe mehr als ein Gesicht im Bild gesehen, Master. "
+                "Bitte versuchen Sie es allein."
+            )
+        return False, (
+            "Ich konnte Ihr Gesicht nicht deutlich sehen, Master. "
+            "Bitte versuchen Sie es mit mehr Licht."
+        )
 
     if len(encodings) < _MIN_USABLE_FRAMES_FOR_ENROLL:
         return False, (
-            f"I only got a clear look in {len(encodings)} of {len(frames)} frames, sir. "
-            "Try again with better lighting or a steadier pose."
+            f"Nur {len(encodings)} von {len(frames)} Bildern waren klar, Master. "
+            "Bitte versuchen Sie es mit besserem Licht oder ruhigerer Haltung."
         )
 
     # Mean across the N (128,) vectors → one (128,) canonical encoding.
@@ -203,14 +209,20 @@ def enroll_from_frames(
         np.save(path, mean_encoding)
     except OSError as exc:
         print(f"[face_auth] couldn't save encoding: {exc}", file=sys.stderr)
-        return False, "I couldn't save the enrollment, sir. Check the security folder permissions."
+        return False, (
+            "Ich konnte Ihr Gesicht nicht speichern, Master. "
+            "Bitte prüfen Sie die Berechtigungen des Sicherheitsordners."
+        )
 
     print(
         f"[face_auth] enrolled: {len(encodings)}/{len(frames)} frames used, "
         f"saved to {path}",
         file=sys.stderr,
     )
-    return True, f"I'll recognize you now, sir. ({len(encodings)} of {len(frames)} frames used.)"
+    return True, (
+        "Ich erkenne Sie jetzt, Master. "
+        f"({len(encodings)} von {len(frames)} Bildern verwendet.)"
+    )
 
 
 def verify_frame(
@@ -310,9 +322,14 @@ def warm() -> None:
 # Regex matching: enroll / remember / register / memorize / learn / save +
 # "face" (optionally prefixed with my/your). "remember me" alone is too
 # broad — anchoring on the word "face" keeps false-positives away from
-# casual conversation about memory.
+# casual conversation about memory. German alternatives are additive
+# ("lerne mein Gesicht", "speichere mein Gesicht", "merk dir mein Gesicht",
+# "mein Gesicht einlernen"), anchored on "Gesicht" the same way.
 _ENROLL_INTENT_RE = re.compile(
-    r"\b(enroll|remember|register|memorize|learn|save)\b\s+(my\s+|your\s+)?face\b",
+    r"\b(enroll|remember|register|memorize|learn|save)\b\s+(my\s+|your\s+)?face\b"
+    r"|\b(?:lerne?|registriere?|speichere?|merke?\s+dir|pr(?:ä|ae)ge?\s+dir)\s+"
+    r"(?:bitte\s+)?(?:(?:mein|dein)\s+)?gesicht\b"
+    r"|\b(?:mein|dein)\s+gesicht\s+(?:einlernen|lernen|speichern|registrieren|merken)\b",
     re.IGNORECASE,
 )
 
@@ -349,7 +366,7 @@ def run_voice_enrollment(
     # user would hear "hold still" → see the camera LED → wait → only then
     # get "face recognition isn't available," which feels broken.
     if not _ensure_imported():
-        announce_fn("Face recognition isn't installed, sir.")
+        announce_fn("Die Gesichtserkennung ist nicht installiert, Master.")
         return
 
     def _after_prompt() -> None:
@@ -362,15 +379,15 @@ def run_voice_enrollment(
         except Exception as exc:  # noqa: BLE001 — defensive against camera errors
             print(f"[face_auth] enrollment capture raised: {exc}",
                   file=sys.stderr)
-            announce_fn("I couldn't access the camera, sir.")
+            announce_fn("Ich konnte nicht auf die Kamera zugreifen, Master.")
             return
         if not frames:
-            announce_fn("I couldn't access the camera, sir.")
+            announce_fn("Ich konnte nicht auf die Kamera zugreifen, Master.")
             return
         _, msg = enroll_from_frames(frames, encoding_path)
         announce_fn(msg)
 
     announce_fn(
-        "Hold still while I take a look, sir.",
+        "Bitte halten Sie still, während ich hinsehe, Master.",
         on_done=_after_prompt,
     )

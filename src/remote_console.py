@@ -292,7 +292,7 @@ class RemoteConsoleServer:
             if _SILENCE_MP3 is None:
                 return self._http(
                     "text/plain; charset=utf-8",
-                    "silence.mp3 not available (PyAV MP3 encoder absent)",
+                    "silence.mp3 nicht verfügbar (PyAV-MP3-Encoder fehlt)",
                     404,
                 )
             return self._http_bytes(
@@ -316,7 +316,7 @@ class RemoteConsoleServer:
         geofence boundary:
 
             /presence?event=leave     → arm (deferred, flap-damped)
-            /presence?event=arrive    → disarm + "welcome home, sir"
+            /presence?event=arrive    → disarm + "Willkommen zu Hause, Master."
 
         Auth uses the SAME JARVIS_REMOTE_TOKEN as the WS console, supplied as
         an `Authorization: Bearer <token>` header (preferred), an

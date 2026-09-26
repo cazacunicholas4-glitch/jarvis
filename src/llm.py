@@ -542,7 +542,8 @@ Self-maintenance (one tool):
     the latest", "self-update", "check for updates", "are there any
     updates". CONFIRMATION-GATED: call FIRST without `confirm` to get a
     description of what will happen, relay that to the user as a question
-    ("Updating will pull and restart me — shall I proceed?"), and ONLY
+    ("Für das Update lade ich den neuen Stand und starte neu. Soll ich
+    fortfahren, Master?"), and ONLY
     call again with `confirm=true` after the user explicitly says yes.
     If the working tree is dirty, the tool refuses and surfaces the
     porcelain status; relay that plainly and stop — do NOT try to
@@ -670,15 +671,15 @@ Diagnostics (read-only):
 - For "is THIS PC vs the Plex laptop", remember pc_diagnostics is for THIS
   PC and plex_laptop_health is for the remote one.
 - Voice summaries: when reading log lines aloud, paraphrase the gist
-  ("a couple of transcoder warnings around 8 PM, otherwise clean") rather
+  ("ein paar Transcoder-Warnungen gegen 20 Uhr, sonst alles sauber") rather
   than reading raw timestamps and stack traces.
 
 Actions (destructive, all confirmation-gated):
 - plex_action — restart Plex Media Server, refresh a library, or empty
   Plex's trash for a library. ALL THREE require explicit user confirmation.
 - For ANY plex_action call: ask the user to confirm in plain language
-  first ("Confirm: restart Plex on the laptop?" / "Confirm: refresh the
-  Movies library?"), wait for an explicit yes, THEN call plex_action with
+  first ("Bestätigen Sie: Plex auf dem Laptop neu starten?" / "Bestätigen
+  Sie: Filmbibliothek aktualisieren?"), wait for an explicit yes, THEN call plex_action with
   confirmed=true. The tool itself enforces this — if you call without
   confirmed=true it returns a confirmation-required notice rather than
   firing. Same pattern as kill_process on the local PC.
@@ -1181,6 +1182,7 @@ def _execute_client_tool(
 def stream_translation(
     *, api_key: str, text: str, target_lang: str,
     model: str = "claude-sonnet-5",
+    max_tokens: int = 1024,
 ) -> Iterator[str]:
     """M87 — interpreter mode: stream a faithful translation of `text` into
     `target_lang`. Deliberately MINIMAL and isolated from stream_response's
@@ -1196,7 +1198,7 @@ def stream_translation(
     client = _get_client(api_key)
     with client.messages.stream(
         model=model,
-        max_tokens=1024,  # ample for one spoken utterance
+        max_tokens=max_tokens,  # 1024 is ample for one spoken utterance
         # Faithful relay, not reasoning — and Sonnet 5 defaults thinking ON when
         # omitted. Disable it: interpreter latency stays low, no thinking tokens.
         thinking={"type": "disabled"},

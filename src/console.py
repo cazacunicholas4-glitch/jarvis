@@ -43,7 +43,7 @@ from PIL import Image, ImageTk
 
 from src import reactor
 from src.attachments import load_attachment
-from src.tray import State
+from src.tray import STATE_DISPLAY_DE, State
 
 
 class JarvisConsole:
@@ -72,6 +72,11 @@ class JarvisConsole:
         State.THINKING: "#f5b942",   # gold — "working"
         State.SPEAKING: "#34e6d0",   # bright teal-cyan
     }
+
+    # German display names for the state label (BEREIT / HÖRT ZU / ...).
+    # Display only: the State enum (and its .name, which ui.py sends to the
+    # phone as a wire value) stays unchanged.
+    _STATE_LABEL = {st: txt.upper() for st, txt in STATE_DISPLAY_DE.items()}
 
     def __init__(self) -> None:
         ctk.set_appearance_mode("dark")
@@ -123,7 +128,7 @@ class JarvisConsole:
 
         subtitle = ctk.CTkLabel(
             self.root,
-            text="at your service, sir",
+            text="zu Ihren Diensten, Master",
             font=("Consolas", 10),
             text_color=self.DIM_FG,
         )
@@ -151,7 +156,7 @@ class JarvisConsole:
 
         self._state_label = ctk.CTkLabel(
             self.root,
-            text="IDLE",
+            text=self._STATE_LABEL[State.IDLE],
             font=("Consolas", 18, "bold"),
             text_color=self.HEADER_FG,
         )
@@ -170,14 +175,14 @@ class JarvisConsole:
         # toggle lives on the tray — the console stays a passive surface.
         self._mute_label = ctk.CTkLabel(
             self._indicator_frame,
-            text="🔇 muted",
+            text="🔇 stumm",
             font=("Segoe UI Emoji", 12),
             text_color=self.DIM_FG,
         )
         # Read-only engineer-mode indicator.
         self._engineer_label = ctk.CTkLabel(
             self._indicator_frame,
-            text="🛠 engineer",
+            text="🛠 Ingenieur",
             font=("Segoe UI Emoji", 12),
             text_color=self.HEADER_FG,
         )
@@ -185,7 +190,7 @@ class JarvisConsole:
         # armed.
         self._armed_label = ctk.CTkLabel(
             self._indicator_frame,
-            text="🛡 ARMED",
+            text="🛡 SCHARF",
             font=("Segoe UI Emoji", 12, "bold"),
             text_color="#ef4444",
         )
@@ -193,7 +198,7 @@ class JarvisConsole:
         # by _apply_locked when the deterrent has fired.
         self._locked_label = ctk.CTkLabel(
             self._indicator_frame,
-            text="🔒 LOCKED",
+            text="🔒 GESPERRT",
             font=("Segoe UI Emoji", 12, "bold"),
             text_color="#dc2626",
         )
@@ -273,7 +278,7 @@ class JarvisConsole:
         # Format rebuilt by _update_status_text() whenever any status field
         # changes. Uptime ticks every 60s via a recursive .after().
         self._status_started_at = time.time()
-        self._status_model = "(model unset)"
+        self._status_model = "(kein Modell)"
         self._status_tokens = 0
         # Map of integration name → enabled bool. Order preserved so dots
         # render in a stable left-to-right sequence regardless of when each
@@ -344,7 +349,7 @@ class JarvisConsole:
 
         self._input = ctk.CTkEntry(
             self._entry_row,
-            placeholder_text="type to Jarvis…  (Enter to send)",
+            placeholder_text="An Jarvis schreiben…  (Enter zum Senden)",
             font=("Consolas", 14),
             fg_color=self.PANEL_BG,
             text_color=self.USER_FG,
@@ -408,7 +413,7 @@ class JarvisConsole:
         self._transcript.configure(state="disabled")
 
         # Initial empty-state hint
-        self._append_raw("system", "ready. say 'hey jarvis' to begin.\n")
+        self._append_raw("system", "Bereit. Sagen Sie „Hey Jarvis“, um zu beginnen.\n")
 
         # Window-close = hide (not quit). Quit comes from the tray menu.
         self.root.protocol("WM_DELETE_WINDOW", self.hide)
@@ -839,7 +844,8 @@ class JarvisConsole:
     def _apply_state(self, state: State) -> None:
         self._state = state
         try:
-            self._state_label.configure(text=state.name)
+            self._state_label.configure(
+                text=self._STATE_LABEL.get(state, state.name))
         except tk.TclError:
             pass
 
@@ -916,8 +922,8 @@ class JarvisConsole:
         h, rem = divmod(secs, 3600)
         m, _ = divmod(rem, 60)
         if h > 0:
-            return f"{h}h {m}m"
-        return f"{m}m"
+            return f"{h} h {m} min"
+        return f"{m} min"
 
     def _update_status_text(self) -> None:
         """Recompose the footer text from current state. Filled circle (●)
@@ -925,8 +931,8 @@ class JarvisConsole:
         wrapping — fits within a 520px window comfortably."""
         parts = [
             self._status_model,
-            f"up {self._format_uptime()}",
-            f"{self._status_tokens:,} tok",
+            f"seit {self._format_uptime()}",
+            f"{self._status_tokens:,} Token".replace(",", "."),  # German thousands dot
         ]
         # Integrations get a fixed left-to-right ordering by registration time.
         for name, enabled in self._status_integrations.items():
@@ -1023,7 +1029,7 @@ class JarvisConsole:
             tb.tag_bind(tag, "<Enter>", lambda _e: tb.config(cursor="hand2"))
             tb.tag_bind(tag, "<Leave>", lambda _e: tb.config(cursor=""))
 
-            tb.insert("end", "\n        (click to enlarge)\n", "dim")
+            tb.insert("end", "\n        (zum Vergrößern klicken)\n", "dim")
             tb.see("end")
             self._transcript.configure(state="disabled")
         except tk.TclError:
@@ -1132,7 +1138,7 @@ class JarvisConsole:
             # next line, indented via the user/jarvis tags' lmargin.
             tb.insert("end", f"{ts}  ", "time")
             if who == "you":
-                label = "YOU" + (f"  ·  {language}" if language and language != "de" else "")
+                label = "SIE" + (f"  ·  {language}" if language and language != "de" else "")
                 tb.insert("end", label + "\n", "you_label")
                 tb.insert("end", text + "\n", "user")
             else:
@@ -1198,19 +1204,19 @@ class JarvisConsole:
         (listen_loop, text_input_loop) keep running independently."""
         path = filedialog.askopenfilename(
             parent=self.root,
-            title="Attach a file for Jarvis",
+            title="Datei für Jarvis anhängen",
             filetypes=[
-                ("Documents", "*.pdf"),
-                ("Images", "*.png *.jpg *.jpeg *.gif *.webp"),
-                ("Text / code", "*.txt *.md *.csv *.json *.yaml *.yml *.log *.py *.js *.ts *.html *.css"),
-                ("All files", "*.*"),
+                ("Dokumente", "*.pdf"),
+                ("Bilder", "*.png *.jpg *.jpeg *.gif *.webp"),
+                ("Text / Code", "*.txt *.md *.csv *.json *.yaml *.yml *.log *.py *.js *.ts *.html *.css"),
+                ("Alle Dateien", "*.*"),
             ],
         )
         if not path:
             return  # user cancelled
         block, error = load_attachment(path)
         if error is not None or block is None:
-            self.add_system_text(f"attachment: {error or 'unknown error'}")
+            self.add_system_text(f"Anhang: {error or 'unbekannter Fehler'}")
             return
         # Best-effort filename for display + the prefix we inject on submit.
         filename = Path(path).name

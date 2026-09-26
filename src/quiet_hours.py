@@ -199,7 +199,7 @@ def format_deferred(items: list[dict]) -> str:
     """Render deferred announces as a briefing catch-up section. '' if none."""
     if not items:
         return ""
-    lines = ["While you were away, sir — a few quiet-hours notes:"]
+    lines = ["While you were away, Master — a few quiet-hours notes:"]
     for it in items:
         text = (it.get("text") or "").strip()
         if not text:

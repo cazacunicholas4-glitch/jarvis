@@ -309,8 +309,8 @@ check("composition fire: announce got composed text",
       len(spoke3) == 1 and "WEATHER: clear" in spoke3[0], spoke3)
 check("composition fire: notify got the SAME composed text",
       pushed3 == spoke3 and len(pushed3) == 1, (pushed3, spoke3))
-check("composition fire: greeting prefix present (7am -> Good morning)",
-      bool(spoke3) and spoke3[0].startswith("Good morning"), spoke3)
+check("composition fire: greeting prefix present (7am -> Guten Morgen)",
+      bool(spoke3) and spoke3[0].startswith("Guten Morgen"), spoke3)
 remod._COMPOSITION_ACTIONS["briefing"] = _orig_brief  # restore
 
 

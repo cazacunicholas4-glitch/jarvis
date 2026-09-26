@@ -102,11 +102,11 @@ SYSTEM_CONTROL_TOOL = {
         "IMPORTANT for the mutating actions (kill_process, flush_dns, "
         "restart_service, stop_service, start_service, dhcp_cycle): you "
         "MUST first ask the user to "
-        "confirm in plain language ('Confirm: flush the DNS cache?' / "
-        "'Confirm: restart the Spooler service?' / 'Confirm: stop the "
-        "Spooler service?' / 'Confirm: release "
-        "and renew the DHCP lease? This briefly drops network "
-        "connectivity.'), wait for their explicit yes, THEN call this "
+        "confirm in plain language ('Bestätigen Sie: DNS-Cache leeren?' / "
+        "'Bestätigen Sie: Dienst Spooler neu starten?' / 'Bestätigen Sie: "
+        "Dienst Spooler stoppen?' / 'Bestätigen Sie: DHCP-Lease "
+        "freigeben und erneuern? Die Netzwerkverbindung bricht dabei kurz "
+        "ab.'), wait for their explicit yes, THEN call this "
         "tool with confirmed=true. flush_dns, restart_service, "
         "stop_service, start_service, and "
         "dhcp_cycle additionally require Jarvis to be running as "
@@ -532,7 +532,7 @@ def _do_flush_dns(confirmed: bool) -> str:
     if not _IS_ADMIN:
         return (
             "Flushing the DNS cache requires Jarvis to be running as "
-            "Administrator, sir. Restart Jarvis from an elevated prompt "
+            "Administrator, Master. Restart Jarvis from an elevated prompt "
             "and try again."
         )
 
@@ -596,7 +596,7 @@ def _do_dhcp_cycle(confirmed: bool) -> str:
     if not _IS_ADMIN:
         return (
             "Cycling the DHCP lease requires Jarvis to be running as "
-            "Administrator, sir. Restart Jarvis from an elevated "
+            "Administrator, Master. Restart Jarvis from an elevated "
             "prompt and try again."
         )
 
@@ -724,7 +724,7 @@ def _do_service_action(action: str, target: str, confirmed: bool) -> str:
     if not _IS_ADMIN:
         return (
             f"{gerund.capitalize()} a Windows service requires Jarvis to be "
-            "running as Administrator, sir. Restart Jarvis from an elevated "
+            "running as Administrator, Master. Restart Jarvis from an elevated "
             "prompt and try again."
         )
 

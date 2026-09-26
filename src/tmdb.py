@@ -515,7 +515,7 @@ def _do_providers(query: str, key: str, media: str | None, region: str) -> str:
     if not region_data:
         return (
             f"I don't have any streaming availability for '{title}' in "
-            f"{region}, sir."
+            f"{region}, Master."
         )
 
     lines: list[str] = []
@@ -533,7 +533,7 @@ def _do_providers(query: str, key: str, media: str | None, region: str) -> str:
         # actual stream/rent/buy options — title not currently available there.
         return (
             f"'{title}' isn't currently listed to stream, rent, or buy in "
-            f"{region}, sir."
+            f"{region}, Master."
         )
     return f"Where to watch {title} ({region}):\n" + "\n".join(lines)
 
@@ -549,7 +549,7 @@ def execute_tmdb_tool(params: dict) -> str:
         return _execute_tmdb_tool(params)
     except Exception as exc:  # noqa: BLE001
         print(f"[tmdb] tool failed: {type(exc).__name__}: {exc}", file=sys.stderr)
-        return "The movie/TV lookup hit an unexpected error, sir."
+        return "The movie/TV lookup hit an unexpected error, Master."
 
 
 def _execute_tmdb_tool(params: dict) -> str:
@@ -718,7 +718,7 @@ def _do_person(name: str, department: str, key: str) -> str:
     credits → filter by department → format."""
     resolved = _search_person(name, key)
     if resolved is None:
-        return f"I couldn't find anyone named '{name}', sir."
+        return f"I couldn't find anyone named '{name}', Master."
     pid, canonical = resolved
 
     r = _http_get_with_retry(
@@ -772,7 +772,7 @@ def _do_person(name: str, department: str, key: str) -> str:
             merged.append(("crew", c))
         merged.sort(key=lambda pair: _credit_sort_key(pair[1]), reverse=True)
         if not merged:
-            return f"I couldn't find any credits for {canonical}, sir."
+            return f"I couldn't find any credits for {canonical}, Master."
         lines = [f"{canonical} — credits:"]
         for kind, c in merged[:_MAX_PERSON_CREDITS]:
             if kind == "cast":
@@ -782,7 +782,7 @@ def _do_person(name: str, department: str, key: str) -> str:
         return "\n".join(lines)
 
     if not items:
-        return (f"I couldn't find any {descriptor} for {canonical}, sir.")
+        return (f"I couldn't find any {descriptor} for {canonical}, Master.")
     items.sort(key=_credit_sort_key, reverse=True)
     visible = items[:_MAX_PERSON_CREDITS]
     lines = [f"{canonical} — {descriptor}:"]
@@ -805,7 +805,7 @@ def execute_person_info_tool(params: dict) -> str:
         )
     name = (params.get("name") or "").strip()
     if not name:
-        return "A person's name is required, sir."
+        return "A person's name is required, Master."
     department = (params.get("department") or "acting").lower().strip()
     if department not in ("acting", "directing", "writing", "all"):
         department = "acting"

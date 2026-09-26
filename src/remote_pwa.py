@@ -26,7 +26,7 @@ PWA_MANIFEST = """{
 
 
 PWA_HTML = r"""<!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
@@ -128,38 +128,38 @@ PWA_HTML = r"""<!DOCTYPE html>
 <header>
   <div id="orb" class="orb"></div>
   <b>JARVIS</b>
-  <span id="armed">UNARMED</span>
-  <span id="pill">connecting…</span>
+  <span id="armed">UNSCHARF</span>
+  <span id="pill">verbinde…</span>
 </header>
 <div id="log"></div>
 <footer>
   <div class="row">
-    <button id="arm" class="ctl">Arm</button>
-    <button id="disarm" class="ctl">Disarm</button>
+    <button id="arm" class="ctl">Scharf schalten</button>
+    <button id="disarm" class="ctl">Unscharf schalten</button>
   </div>
   <div class="row">
-    <button id="spk" class="ctl" aria-pressed="false">🔇 Speak replies: off</button>
+    <button id="spk" class="ctl" aria-pressed="false">🔇 Antworten vorlesen: aus</button>
   </div>
   <div class="row">
-    <button id="prb" class="ctl" style="display:none">▶︎ Tap to hear reply</button>
+    <button id="prb" class="ctl" style="display:none">▶︎ Tippen, um die Antwort zu hören</button>
   </div>
   <div class="row">
-    <button id="mic" class="ctl" aria-pressed="false">🎤 Tap to talk</button>
+    <button id="mic" class="ctl" aria-pressed="false">🎤 Tippen zum Sprechen</button>
   </div>
   <div class="row">
     <input id="txt" type="text" autocomplete="off" autocapitalize="sentences"
-           placeholder="Message Jarvis…" enterkeyhint="send">
-    <button id="send">Send</button>
+           placeholder="Nachricht an Jarvis…" enterkeyhint="send">
+    <button id="send">Senden</button>
   </div>
 </footer>
 <audio id="ae" playsinline></audio>
 
 <div id="setup">
-  <h2>Connect to Jarvis</h2>
-  <p>Enter the remote token (JARVIS_REMOTE_TOKEN from the PC's .env). It's
-     saved on this device only.</p>
-  <input id="tok" type="password" autocomplete="off" placeholder="Remote token">
-  <button id="save" class="ctl">Connect</button>
+  <h2>Mit Jarvis verbinden</h2>
+  <p>Geben Sie das Remote-Token ein (JARVIS_REMOTE_TOKEN aus der .env des PCs).
+     Es wird nur auf diesem Gerät gespeichert.</p>
+  <input id="tok" type="password" autocomplete="off" placeholder="Remote-Token">
+  <button id="save" class="ctl">Verbinden</button>
   <p id="err" style="color:var(--bad)"></p>
 </div>
 
@@ -175,7 +175,7 @@ PWA_HTML = r"""<!DOCTYPE html>
   const ae = document.getElementById("ae");
   let _ctx = null, lastClip = null;
   function logerr(where, e) {
-    line("sys", "audio " + where + " ✗ " +
+    line("sys", "Audio " + where + " ✗ " +
       (e && e.name ? e.name + ": " + (e.message || "") : e));
   }
   // M48.2b iOS audio — evidence-driven (real-device test 2026-05-19): the
@@ -211,14 +211,14 @@ PWA_HTML = r"""<!DOCTYPE html>
     // concise, actionable line + the guaranteed manual button. Surface the
     // raw error only for genuinely unexpected failures.
     if (e && e.name === "NotAllowedError")
-      line("sys", "🔊 Reply ready — tap ▶︎ below to hear it.");
+      line("sys", "🔊 Antwort bereit. Tippen Sie unten auf ▶︎, um sie zu hören.");
     else
-      logerr("play", e);
+      logerr("Wiedergabe", e);
     $("prb").style.display = "block";
   }
   function setSpk() {
     const b = $("spk");
-    b.textContent = speakOn ? "🔊 Speak replies: ON" : "🔇 Speak replies: off";
+    b.textContent = speakOn ? "🔊 Antworten vorlesen: AN" : "🔇 Antworten vorlesen: aus";
     b.classList.toggle("on", speakOn);
     b.setAttribute("aria-pressed", speakOn ? "true" : "false");
   }
@@ -267,15 +267,15 @@ PWA_HTML = r"""<!DOCTYPE html>
   function setMicUI(state) {
     const b = $("mic");
     if (state === "recording") {
-      b.textContent = "🔴 Recording — tap to stop";
+      b.textContent = "🔴 Aufnahme – tippen zum Beenden";
       b.classList.add("on");
       b.setAttribute("aria-pressed", "true");
     } else if (state === "uploading") {
-      b.textContent = "⏳ Transcribing…";
+      b.textContent = "⏳ Wird transkribiert…";
       b.classList.remove("on");
       b.setAttribute("aria-pressed", "false");
     } else {
-      b.textContent = "🎤 Tap to talk";
+      b.textContent = "🎤 Tippen zum Sprechen";
       b.classList.remove("on");
       b.setAttribute("aria-pressed", "false");
     }
@@ -292,7 +292,7 @@ PWA_HTML = r"""<!DOCTYPE html>
         const i = dataUrl.indexOf(",");
         resolve(i >= 0 ? dataUrl.slice(i + 1) : "");
       };
-      fr.onerror = () => reject(fr.error || new Error("FileReader failed"));
+      fr.onerror = () => reject(fr.error || new Error("FileReader fehlgeschlagen"));
       fr.readAsDataURL(blob);
     });
   }
@@ -307,11 +307,11 @@ PWA_HTML = r"""<!DOCTYPE html>
   async function startRecording() {
     if (recState !== "idle") return;
     if (!ws || ws.readyState !== 1) {
-      line("sys", "mic: not connected — tap status pill to reconnect");
+      line("sys", "Mikrofon: nicht verbunden. Zum Neuverbinden auf die Statusanzeige tippen.");
       return;
     }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      line("sys", "mic: this browser can't capture audio (need HTTPS / secure context)");
+      line("sys", "Mikrofon: Dieser Browser kann kein Audio aufnehmen (HTTPS oder sicherer Kontext nötig).");
       return;
     }
     try {
@@ -321,7 +321,7 @@ PWA_HTML = r"""<!DOCTYPE html>
       // gesture rules misfired; SecurityError happens on insecure origins
       // (but M48.2c HTTPS means we shouldn't hit that). Either way, a calm
       // line, not a stack trace.
-      line("sys", "mic: " + (e && e.name ? e.name : "permission denied"));
+      line("sys", "Mikrofon: " + (e && e.name ? e.name : "Zugriff verweigert"));
       return;
     }
     // Pick the first mimeType the browser admits to supporting. Safari =
@@ -335,7 +335,7 @@ PWA_HTML = r"""<!DOCTYPE html>
       }
     } else {
       stopTracks();
-      line("sys", "mic: MediaRecorder not available on this browser");
+      line("sys", "Mikrofon: MediaRecorder ist in diesem Browser nicht verfügbar.");
       return;
     }
     try {
@@ -344,7 +344,7 @@ PWA_HTML = r"""<!DOCTYPE html>
         : new MediaRecorder(mediaStream);
     } catch (e) {
       stopTracks();
-      line("sys", "mic init failed: " + (e && e.name ? e.name : e));
+      line("sys", "Mikrofon konnte nicht initialisiert werden: " + (e && e.name ? e.name : e));
       return;
     }
     recChunks = [];
@@ -352,12 +352,12 @@ PWA_HTML = r"""<!DOCTYPE html>
       if (ev.data && ev.data.size > 0) recChunks.push(ev.data);
     };
     mediaRecorder.onstop = onRecordingStop;
-    mediaRecorder.onerror = (ev) => logerr("recorder", ev && ev.error);
+    mediaRecorder.onerror = (ev) => logerr("Aufnahme", ev && ev.error);
     try {
       mediaRecorder.start();
     } catch (e) {
       stopTracks();
-      line("sys", "mic start failed: " + (e && e.name ? e.name : e));
+      line("sys", "Mikrofon konnte nicht gestartet werden: " + (e && e.name ? e.name : e));
       return;
     }
     recState = "recording";
@@ -374,7 +374,7 @@ PWA_HTML = r"""<!DOCTYPE html>
     // Hard cap: stop on our terms before Safari decides the tab has been
     // recording "too long" and silently kills the stream.
     recCapTimer = setTimeout(() => {
-      line("sys", "mic: 60s cap reached — stopping");
+      line("sys", "Mikrofon: 60-Sekunden-Limit erreicht, Aufnahme wird beendet.");
       stopRecording();
     }, REC_CAP_MS);
   }
@@ -395,18 +395,18 @@ PWA_HTML = r"""<!DOCTYPE html>
     let sent = false;
     try {
       if (!blob || blob.size === 0) {
-        line("sys", "mic: empty recording");
+        line("sys", "Mikrofon: leere Aufnahme.");
         return;
       }
       const b64 = await blobToBase64(blob);
       if (!ws || ws.readyState !== 1) {
-        line("sys", "mic: disconnected before upload");
+        line("sys", "Mikrofon: Verbindung vor dem Hochladen getrennt.");
         return;
       }
       ws.send(JSON.stringify({ type: "audio", mime: mime, b64: b64 }));
       sent = true;
     } catch (e) {
-      logerr("upload", e);
+      logerr("Hochladen", e);
     } finally {
       if (!sent) {
         // Upload never reached the server — drop straight back to idle so
@@ -425,8 +425,8 @@ PWA_HTML = r"""<!DOCTYPE html>
         micTranscribeTimer = setTimeout(() => {
           micTranscribeTimer = null;
           if (recState === "uploading") {
-            line("sys", "mic: no transcript after " +
-                 (MIC_TRANSCRIBE_TIMEOUT_MS / 1000) + "s — resetting");
+            line("sys", "Mikrofon: kein Transkript nach " +
+                 (MIC_TRANSCRIBE_TIMEOUT_MS / 1000) + " s, wird zurückgesetzt.");
             recState = "idle";
             setMicUI("idle");
           }
@@ -466,8 +466,16 @@ PWA_HTML = r"""<!DOCTYPE html>
   // readable (the header orb carries the vivid state colour now).
   const STATE_COLOR = { idle:"", listening:"#0e7490", thinking:"#a16207",
                         speaking:"#0f766e" };
+  // German pill text for the state names. Display only: the wire values
+  // (idle/listening/thinking/speaking) and the STATE_COLOR keys stay.
+  const STATE_LABEL = { idle:"bereit", listening:"hört zu",
+                        thinking:"denkt nach", speaking:"spricht" };
+  function stateLabel(s) {
+    return Object.prototype.hasOwnProperty.call(STATE_LABEL, s)
+      ? STATE_LABEL[s] : s;
+  }
   function setArmed(on) {
-    armedEl.textContent = on ? "ARMED" : "UNARMED";
+    armedEl.textContent = on ? "SCHARF" : "UNSCHARF";
     armedEl.classList.toggle("on", !!on);
   }
   // M57 — reflect Jarvis's state on the header arc-reactor orb. Whitelisted:
@@ -506,7 +514,7 @@ PWA_HTML = r"""<!DOCTYPE html>
     try { if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); } }
     catch (e) { /* already dead */ }
     $("setup").classList.remove("show");
-    setPill("connecting…");
+    setPill("verbinde…");
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const sock = new WebSocket(`${proto}://${location.host}/ws`);
     ws = sock;
@@ -518,7 +526,7 @@ PWA_HTML = r"""<!DOCTYPE html>
     connWD = setTimeout(() => {
       connWD = null;
       if (sock.readyState !== 1) {
-        line("sys", "connection timed out — retrying");
+        line("sys", "Zeitüberschreitung beim Verbinden, neuer Versuch.");
         try { sock.close(); } catch (e) {}
       }
     }, CONN_TIMEOUT_MS);
@@ -527,7 +535,7 @@ PWA_HTML = r"""<!DOCTYPE html>
       let m; try { m = JSON.parse(ev.data); } catch { return; }
       switch (m.type) {
         case "auth_ok": clearWD(); retry = 0;
-          setPill("connected", "#15803d"); break;
+          setPill("verbunden", "#15803d"); break;
         case "auth_fail":
           clearWD();
           if (m.reason === "timeout") {
@@ -535,21 +543,21 @@ PWA_HTML = r"""<!DOCTYPE html>
             // cellular, a backgrounded tab) — our token is probably fine. Keep
             // it and let onclose's backoff retry, instead of wiping a good
             // token and forcing the user to re-enter it.
-            line("sys", "auth timed out — retrying");
+            line("sys", "Zeitüberschreitung bei der Anmeldung, neuer Versuch.");
             sock.close();
           } else {
             localStorage.removeItem("jarvisToken"); token = "";
-            $("err").textContent = "Token rejected. Try again.";
+            $("err").textContent = "Token abgelehnt. Bitte erneut versuchen.";
             $("setup").classList.add("show"); sock.close();
           }
           break;
         case "snapshot":
           setArmed(m.armed);
-          setPill(m.state || "connected",
+          setPill(stateLabel(m.state) || "verbunden",
                   STATE_COLOR[m.state] ?? "#0f766e");
           setOrb(m.state); break;
         case "state":
-          setPill(m.state, STATE_COLOR[m.state] ?? "");
+          setPill(stateLabel(m.state), STATE_COLOR[m.state] ?? "");
           setOrb(m.state); break;
         case "armed": setArmed(m.armed); break;
         case "user":
@@ -568,7 +576,7 @@ PWA_HTML = r"""<!DOCTYPE html>
     };
     sock.onclose = () => {
       clearWD();
-      setPill("reconnecting… (tap)", "#b45309");
+      setPill("verbinde neu… (tippen)", "#b45309");
       retry = Math.min(retry + 1, 6);
       setTimeout(dial, 400 * retry);   // guarded; capped backoff
     };
@@ -606,7 +614,7 @@ PWA_HTML = r"""<!DOCTYPE html>
     if (lastClip) {
       ae.loop = false;
       ae.src = "data:" + lastClip.mime + ";base64," + lastClip.b64;
-      ae.play().catch(e => logerr("manual", e));
+      ae.play().catch(e => logerr("manuell", e));
     }
     $("prb").style.display = "none";
   };
@@ -630,7 +638,7 @@ PWA_HTML = r"""<!DOCTYPE html>
   // ship the reliable manual path now; HTTPS/Tailscale makes the automatic
   // path robust later (same strategic call as the audio one-tap).
   pill.style.cursor = "pointer";
-  pill.title = "Tap to reconnect";
+  pill.title = "Tippen zum Neuverbinden";
   pill.addEventListener("click", () => {
     if (ws && ws.readyState === 1) return;   // already connected
     retry = 0; clearWD();

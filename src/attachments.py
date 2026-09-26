@@ -55,13 +55,14 @@ def load_attachment(path: str) -> tuple[dict | None, str | None]:
     """
     p = Path(path)
     if not p.is_file():
-        return None, f"not a file: {p.name}"
+        return None, f"{p.name} ist keine Datei."
 
     size = p.stat().st_size
     if size > MAX_FILE_BYTES:
         mb = size / (1024 * 1024)  # float: a 25.3 MB file shouldn't read as "25 MB (limit 25 MB)"
         cap = MAX_FILE_BYTES // (1024 * 1024)
-        return None, f"{p.name} is {mb:.1f} MB (limit {cap} MB)"
+        mb_de = f"{mb:.1f}".replace(".", ",")  # German decimal comma
+        return None, f"{p.name} ist {mb_de} MB groß (Limit {cap} MB)."
 
     suffix = p.suffix.lower()
     mime, _ = mimetypes.guess_type(str(p))
@@ -94,13 +95,13 @@ def load_attachment(path: str) -> tuple[dict | None, str | None]:
         try:
             text = p.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            return None, f"failed to read {p.name}: {exc}"
+            return None, f"{p.name} konnte nicht gelesen werden: {exc}"
         return {
             "type": "text",
             "text": f"[Attached file: {p.name}]\n\n{text}",
         }, None
 
-    return None, f"unsupported file type: {p.name}"
+    return None, f"{p.name} hat einen nicht unterstützten Dateityp."
 
 
 def _read_b64(p: Path) -> tuple[str, str | None]:
@@ -108,7 +109,7 @@ def _read_b64(p: Path) -> tuple[str, str | None]:
     try:
         return base64.b64encode(p.read_bytes()).decode("ascii"), None
     except OSError as exc:
-        return "", f"failed to read {p.name}: {exc}"
+        return "", f"{p.name} konnte nicht gelesen werden: {exc}"
 
 
 def image_block(data: bytes, media_type: str = "image/jpeg") -> dict:

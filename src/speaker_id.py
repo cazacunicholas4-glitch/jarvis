@@ -29,6 +29,7 @@ never raises into the listen loop.
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import time
@@ -215,6 +216,19 @@ def delete_speaker(name: str, registry_dir: Path) -> bool:
     return removed
 
 
+def _address(name: str) -> str:
+    """Form of address for the spoken enrollment messages (wording only).
+    The primary user — enrolled under JARVIS_USER_NAME, the same derivation
+    as config.user_name (default "you") — is addressed as "Master"; another
+    household member ("enroll Alice's voice") by name, never as "Master"."""
+    primary = os.getenv("JARVIS_USER_NAME", "you").strip() or "you"
+    who = (name or "").strip()
+    # "you" is the primary user's enrollment sentinel (see listen_loop).
+    if not who or who.lower() in (primary.lower(), "you"):
+        return "Master"
+    return who
+
+
 def enroll_from_audio(
     name: str,
     lang: str,
@@ -229,22 +243,24 @@ def enroll_from_audio(
     face_auth's mean-of-encodings). Requires _MIN_USABLE_CLIPS usable clips.
 
     Returns (ok, user-facing message). Never raises."""
+    addr = _address(name)
     if not _ensure_imported():
-        return False, "Speaker recognition isn't available, sir."
+        return False, f"Die Sprechererkennung ist nicht verfügbar, {addr}."
     if not clips:
-        return False, "I didn't catch any audio, sir."
+        return False, f"Ich habe keine Aufnahme erhalten, {addr}."
 
     embs = [e for e in (embed(c) for c in clips) if e is not None]
     if len(embs) < _MIN_USABLE_CLIPS:
         return False, (
-            f"I only got a clear recording in {len(embs)} of {len(clips)} tries, "
-            "sir. Try again somewhere quieter and speak the whole time."
+            f"Nur {len(embs)} von {len(clips)} Aufnahmen waren klar, {addr}. "
+            "Bitte versuchen Sie es an einem ruhigeren Ort und sprechen Sie "
+            "die ganze Zeit."
         )
 
     mean = np.mean(np.stack(embs), axis=0)
     norm = np.linalg.norm(mean)
     if norm == 0:
-        return False, "Those recordings didn't give me anything usable, sir."
+        return False, f"Diese Aufnahmen waren nicht verwertbar, {addr}."
     enrolled = (mean / norm).astype(np.float32)
 
     slug = _slug(name)
@@ -258,11 +274,14 @@ def enroll_from_audio(
         )
     except OSError as exc:
         print(f"[speaker_id] couldn't save enrollment: {exc}", file=sys.stderr)
-        return False, "I couldn't save the enrollment, sir."
+        return False, f"Ich konnte die Stimme nicht speichern, {addr}."
 
     print(f"[speaker_id] enrolled '{name}' (lang={lang}) from "
           f"{len(embs)}/{len(clips)} clips → {slug}.npy", file=sys.stderr)
-    return True, f"I'll recognize your voice now, sir. ({len(embs)} of {len(clips)} clips used.)"
+    return True, (
+        f"Ich erkenne Ihre Stimme jetzt, {addr}. "
+        f"({len(embs)} von {len(clips)} Aufnahmen verwendet.)"
+    )
 
 
 def identify(
@@ -304,9 +323,15 @@ def identify(
 # orchestration — voice-first, like face_auth.run_voice_enrollment.
 
 # enroll/remember/register/learn/save + "voice" (optionally my/your). Anchored
-# on "voice" so casual talk about memory never matches.
+# on "voice" so casual talk about memory never matches. German alternatives
+# are additive ("lerne meine Stimme", "merk dir meine Stimme", "meine Stimme
+# einlernen"); anchored on "Stimme" right after the verb, so "ich stimme zu"
+# never matches.
 _ENROLL_INTENT_RE = re.compile(
-    r"\b(enroll|remember|register|learn|save)\b\s+(my\s+|your\s+)?voice\b",
+    r"\b(enroll|remember|register|learn|save)\b\s+(my\s+|your\s+)?voice\b"
+    r"|\b(?:lerne?|registriere?|speichere?|merke?\s+dir|pr(?:ä|ae)ge?\s+dir)\s+"
+    r"(?:bitte\s+)?(?:(?:meine|deine)\s+)?stimme\b"
+    r"|\b(?:meine|deine)\s+stimme\s+(?:einlernen|lernen|speichern|registrieren|merken)\b",
     re.IGNORECASE,
 )
 
@@ -321,13 +346,26 @@ def matches_enroll_intent(transcript: str) -> bool:
 # voice", "enroll voice Bob in Spanish". The reliable path is the typed
 # console command (Whisper mangles names); voice works too but expect retries.
 # Two shapes: "voice <name>" and "<name>'s voice", plus an optional language.
+# German alternatives are additive: "lerne die Stimme von Alice", "registriere
+# Alices Stimme", "merk dir die Stimme von Bob auf Spanisch"; "auf Deutsch" /
+# "in German" map to "de" (no language keeps the "en" default).
 _NAMED_ENROLL_RE = re.compile(
-    r"\benroll\b\s+(?:the\s+)?"
+    r"(?:\benroll\b\s+(?:the\s+)?"
     r"(?:voice\s+(?:of\s+|for\s+)?(?P<n1>[\w'-]+)"
     r"|(?P<n2>[\w'-]+)(?:'s|s')\s+voice)"
-    r"(?:\s+(?:in\s+)?(?P<lang>spanish|english|español|inglés))?",
+    r"|\b(?:lerne?|registriere?|speichere?|merke?\s+dir)\s+(?:bitte\s+)?(?:die\s+)?"
+    r"(?:stimme\s+(?:von|für)\s+(?P<n3>[\w'-]+)"
+    r"|(?P<n4>[\w-]+?)(?:'s|s'|s)\s+stimme\b))"
+    r"(?:\s+(?:in\s+|auf\s+)?(?P<lang>spanish|english|german|español|inglés"
+    r"|spanisch|englisch|deutsch))?",
     re.IGNORECASE,
 )
+
+# Spoken language keyword -> the enrolled speaker's language hint.
+_LANG_KEYWORDS = {
+    "spanish": "es", "español": "es", "spanisch": "es",
+    "german": "de", "deutsch": "de",
+}
 
 
 def parse_named_enroll_intent(transcript: str) -> "tuple[str, str] | None":
@@ -339,11 +377,15 @@ def parse_named_enroll_intent(transcript: str) -> "tuple[str, str] | None":
     m = _NAMED_ENROLL_RE.search(transcript or "")
     if not m:
         return None
-    name = (m.group("n1") or m.group("n2") or "").strip()
-    if not name or name.lower() in ("my", "your", "the", "a"):
+    name = (m.group("n1") or m.group("n2") or m.group("n3")
+            or m.group("n4") or "").strip()
+    if not name or name.lower() in ("my", "your", "the", "a", "mein", "meine",
+                                    "meiner", "meinem", "meinen", "dein",
+                                    "deine", "deiner", "deinem", "die", "das",
+                                    "der", "dem", "mir"):
         return None
     raw = (m.group("lang") or "").lower()
-    lang = "es" if raw in ("spanish", "español") else "en"
+    lang = _LANG_KEYWORDS.get(raw, "en")
     return (name[:1].upper() + name[1:], lang)
 
 
@@ -363,8 +405,9 @@ def run_voice_enrollment(
 
     `capture_fn(n, seconds)` → list of int16 16 kHz arrays (one per clip) or
     None; decoupled for testability (production captures from the mic)."""
+    addr = _address(name)
     if not _ensure_imported():
-        announce_fn("Speaker recognition isn't installed, sir.")
+        announce_fn(f"Die Sprechererkennung ist nicht installiert, {addr}.")
         return
 
     def _after_prompt() -> None:
@@ -372,17 +415,18 @@ def run_voice_enrollment(
             clips = capture_fn(num_clips, clip_seconds)
         except Exception as exc:  # noqa: BLE001 — defensive against mic errors
             print(f"[speaker_id] enrollment capture raised: {exc}", file=sys.stderr)
-            announce_fn("I couldn't access the microphone, sir.")
+            announce_fn(f"Ich konnte nicht auf das Mikrofon zugreifen, {addr}.")
             return
         if not clips:
-            announce_fn("I couldn't access the microphone, sir.")
+            announce_fn(f"Ich konnte nicht auf das Mikrofon zugreifen, {addr}.")
             return
         _, msg = enroll_from_audio(name, lang, clips, registry_dir)
         announce_fn(msg)
 
     total = int(num_clips * clip_seconds)
     announce_fn(
-        f"When I finish speaking, talk naturally for about {total} seconds so I "
-        f"can learn your voice, sir — start as soon as I stop.",
+        f"Wenn ich fertig bin, sprechen Sie bitte etwa {total} Sekunden lang "
+        f"ganz natürlich, damit ich Ihre Stimme lernen kann, {addr}. "
+        "Beginnen Sie, sobald ich aufhöre.",
         on_done=_after_prompt,
     )

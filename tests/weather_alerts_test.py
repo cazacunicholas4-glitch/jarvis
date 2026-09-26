@@ -157,8 +157,8 @@ print("\n_fmt_local_time:")
 local_tz = datetime.now().astimezone().tzinfo
 top = datetime(2026, 6, 5, 20, 0, tzinfo=local_tz).isoformat()    # 8:00 PM local
 half = datetime(2026, 6, 5, 20, 30, tzinfo=local_tz).isoformat()  # 8:30 PM local
-check("on-the-hour -> '8 PM'", _fmt_local_time(top) == "8 PM")
-check("with minutes -> '8:30 PM'", _fmt_local_time(half) == "8:30 PM")
+check("on-the-hour -> '20 Uhr'", _fmt_local_time(top) == "20 Uhr")
+check("with minutes -> '20:30 Uhr'", _fmt_local_time(half) == "20:30 Uhr")
 check("None -> ''", _fmt_local_time(None) == "")
 check("garbage -> ''", _fmt_local_time("not-a-date") == "")
 
@@ -170,13 +170,13 @@ spk = _alert_speech(_alert(event="Severe Thunderstorm Warning",
                            ends_iso=datetime(2026, 6, 5, 20, 0,
                                              tzinfo=local_tz).isoformat()))
 check("names the event", "Severe Thunderstorm Warning" in spk)
-check("includes the end time", "until 8 PM" in spk)
+check("includes the end time", "bis 20 Uhr" in spk)
 check("power-risk event carries the no-UPS shutdown nudge",
-      "shut it down" in spk.lower() and "ups" in spk.lower())
+      "herunterfahren" in spk.lower() and "usv" in spk.lower())
 flood = _alert_speech(_alert(event="Flood Warning", ends_iso=None))
 check("non-power event omits the shutdown nudge",
-      "shut it down" not in flood.lower())
-check("no end time -> no 'until' clause", "until" not in flood.lower())
+      "herunterfahren" not in flood.lower())
+check("no end time -> no 'until' clause", "gültig bis" not in flood.lower())
 
 
 # --- fetch_active_alerts (httpx monkeypatched) --------------------------

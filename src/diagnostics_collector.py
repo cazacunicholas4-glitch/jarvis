@@ -65,8 +65,8 @@ RUN_PC_DIAGNOSTICS_COLLECTOR_TOOL = {
         "needs more than the live pc_diagnostics snapshot. "
         "IMPORTANT: this writes hundreds of KB to disk and takes 60-90 seconds "
         "(longer in full mode). You MUST first ask the user to confirm in plain "
-        "language ('Confirm: run a full diagnostics collection? It takes about "
-        "a minute.'), wait for their explicit yes, THEN call with confirmed=true."
+        "language ('Bestätigen Sie: vollständige Diagnose starten? Das dauert "
+        "etwa eine Minute.'), wait for their explicit yes, THEN call with confirmed=true."
     ),
     "input_schema": {
         "type": "object",

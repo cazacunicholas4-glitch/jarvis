@@ -225,12 +225,12 @@ class TurnRunner:
         if self._reset_event.is_set():
             if self._history:
                 print(f"[main] conversation reset (manual; sealing {len(self._history)} msgs)")
-                self._ui.add_system_text("conversation reset.")
+                self._ui.add_system_text("Unterhaltung zurückgesetzt.")
             self.seal_and_refresh()
             self._reset_event.clear()
         elif self._history and (time.time() - self._last_turn_time) > IDLE_RESET_SEC:
             print(f"[main] conversation reset (idle >{IDLE_RESET_SEC:.0f}s)")
-            self._ui.add_system_text("conversation reset (idle).")
+            self._ui.add_system_text("Unterhaltung zurückgesetzt (Inaktivität).")
             self.seal_and_refresh()
 
         # First turn of a (possibly new) session — capture its language.
@@ -532,13 +532,13 @@ class TurnRunner:
                 if rec.tools_used:
                     bits.append(", ".join(rec.tools_used))
                 if rec.iterations > 1:
-                    bits.append(f"{rec.iterations} iters")
+                    bits.append(f"{rec.iterations} Durchläufe")
                 if rec.thinking_enabled:
-                    bits.append("thinking")
+                    bits.append("Nachdenken")
                 bits.append(f"{rec.elapsed_sec:.1f}s")
-                bits.append(f"{rec.total_tokens:,} tok")
+                bits.append(f"{rec.total_tokens:,} Tokens")
                 if rec.paused:
-                    bits.append("PAUSED(10-iter cap)")
+                    bits.append("PAUSIERT (Limit von 10 Durchläufen)")
                 self._ui.add_telemetry_chip(" · ".join(bits))
 
             def on_image_captured(image_bytes: bytes, media_type: str, tool_name: str) -> None:
@@ -548,8 +548,8 @@ class TurnRunner:
                 just the text description. Label maps tool name → emoji +
                 source for at-a-glance recognition."""
                 label = {
-                    "camera_snapshot": "📷 webcam snapshot",
-                    "screen_snapshot": "🖥 screen snapshot",
+                    "camera_snapshot": "📷 Webcam-Aufnahme",
+                    "screen_snapshot": "🖥 Bildschirmfoto",
                 }.get(tool_name, f"🖼 {tool_name}")
                 self._ui.add_image_thumbnail(image_bytes, label)
                 # M71 — relay the captured frame to the originating remote

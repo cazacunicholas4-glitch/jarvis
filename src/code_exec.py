@@ -200,11 +200,11 @@ def execute_code_tool(params: dict) -> str:
     exit all become readable strings."""
     code = params.get("code") or ""
     if not code.strip():
-        return "No code was provided to run, sir."
+        return "No code was provided to run, Master."
     if len(code) > _MAX_CODE_LEN:
         return (
             f"That code is {len(code)} characters — past the "
-            f"{_MAX_CODE_LEN}-char sandbox limit. Trim it down, sir."
+            f"{_MAX_CODE_LEN}-char sandbox limit. Trim it down, Master."
         )
 
     # Audit trail: every code run is logged to stderr (jarvis.log) — the same
@@ -239,7 +239,7 @@ def execute_code_tool(params: dict) -> str:
     except FileNotFoundError:
         # The runtime binary isn't on PATH at all.
         return (
-            f"Code execution is unavailable, sir — '{_RUNTIME}' isn't "
+            f"Code execution is unavailable, Master — '{_RUNTIME}' isn't "
             f"installed or isn't on PATH. Install Podman to enable it."
         )
     except subprocess.TimeoutExpired:
@@ -247,11 +247,11 @@ def execute_code_tool(params: dict) -> str:
         _force_remove(name)
         return (
             f"The code ran past the {_TIMEOUT_SEC}-second sandbox limit and "
-            f"was killed, sir — most likely an infinite loop or a task too "
+            f"was killed, Master — most likely an infinite loop or a task too "
             f"heavy for the sandbox."
         )
     except Exception as exc:  # noqa: BLE001 — never crash the listen loop
-        return f"The sandbox failed to run, sir: {type(exc).__name__}."
+        return f"The sandbox failed to run, Master: {type(exc).__name__}."
 
     out = _truncate((proc.stdout or "").strip())
     err = _truncate((proc.stderr or "").strip())
@@ -265,7 +265,7 @@ def execute_code_tool(params: dict) -> str:
             "no such image", "image not known", "unable to find image",
         )):
             return (
-                "Code execution is unavailable, sir — the sandbox image "
+                "Code execution is unavailable, Master — the sandbox image "
                 "isn't built yet. Build it once with: "
                 "podman build -t jarvis-code-sandbox sandbox/"
             )
@@ -274,7 +274,7 @@ def execute_code_tool(params: dict) -> str:
             "is the podman service running",
         )):
             return (
-                "Code execution is unavailable, sir — the Podman machine "
+                "Code execution is unavailable, Master — the Podman machine "
                 "isn't running. Start Podman Desktop, or run "
                 "`podman machine start`."
             )

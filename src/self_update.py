@@ -208,7 +208,7 @@ def execute_update_jarvis(params: dict) -> str:
         if fetch_rc != 0:
             return (
                 "Updating myself will run `git pull` in the project "
-                "repository and restart me to load the new code, sir. "
+                "repository and restart me to load the new code, Master. "
                 f"(I couldn't reach origin to preview the changes: "
                 f"{fetch_err[:100]}.) Shall I proceed anyway?"
             )
@@ -216,13 +216,13 @@ def execute_update_jarvis(params: dict) -> str:
         if err:
             return (
                 "Updating myself will run `git pull` in the project "
-                "repository and restart me to load the new code, sir. "
+                "repository and restart me to load the new code, Master. "
                 f"(I couldn't preview the commits: {err[:100]}.) "
                 f"Shall I proceed?"
             )
         if not pending:
             # Saves the user from confirming an empty pull.
-            return "I'm already up to date, sir — no update needed."
+            return "I'm already up to date, Master — no update needed."
         return (
             f"{_describe_pending(pending)}\n\n"
             f"Pulling these and restarting me — shall I proceed?"
@@ -231,12 +231,12 @@ def execute_update_jarvis(params: dict) -> str:
     status, detail = _working_tree_status()
     if status == "unknown":
         return (
-            f"I couldn't read the git status, sir, so I can't safely "
+            f"I couldn't read the git status, Master, so I can't safely "
             f"update: {detail}"
         )
     if status == "dirty":
         return (
-            "There are uncommitted changes in the working tree, sir — "
+            "There are uncommitted changes in the working tree, Master — "
             "commit or stash them first, then ask me again. Status:\n"
             f"{detail}"
         )
@@ -248,21 +248,21 @@ def execute_update_jarvis(params: dict) -> str:
         #   - "Not possible to fast-forward" → divergent local commits
         #   - "Authentication failed" → credential issue
         msg = (stderr or stdout or "unknown error")[:300]
-        return f"The update failed, sir: {msg}"
+        return f"The update failed, Master: {msg}"
 
     # Git's "Already up to date." (with or without trailing punctuation)
     # is THE signal that nothing was pulled. Match both for safety across
     # git versions.
     first_line = stdout.splitlines()[0] if stdout else ""
     if "already up to date" in stdout.lower():
-        return "I'm already up to date, sir — no update needed."
+        return "I'm already up to date, Master — no update needed."
 
     if _restart_callback is None:
         # Update applied but we can't restart ourselves — surface honestly
         # so the user knows to restart manually. Rare in production (main.py
         # always wires the callback) but the test path hits this.
         return (
-            f"Update pulled successfully, sir, but I'm not wired to "
+            f"Update pulled successfully, Master, but I'm not wired to "
             f"restart myself in this session. {first_line[:150]}"
         )
 
@@ -284,6 +284,6 @@ def execute_update_jarvis(params: dict) -> str:
     ).start()
 
     return (
-        f"Update successful, sir — {first_line[:100]}. "
+        f"Update successful, Master — {first_line[:100]}. "
         f"I'll restart in a moment."
     )

@@ -372,8 +372,11 @@ maintainable. Follow them.
 
 ## Personality / system prompt notes
 The persona:
-- British-butler tone: courteous, dryly witty, concise.
-- Address the user as "sir" *sparingly* — not every sentence.
+- Butler tone: courteous, dryly witty, concise. **Replies are German by
+  default** (formal "Sie"), even when the input contains English words;
+  English or Spanish only when the owner explicitly asks for it.
+- Address the owner as "Master" *sparingly* — not every sentence. Never "sir".
+  Other enrolled people are addressed by name.
 - Short replies by default. This is voice; long replies are tedious to listen
   to. The pattern is headline first, then offer the longer version — which also
   feeds naturally into the follow-up window.
@@ -389,26 +392,37 @@ swap can leave routing perfect while default reply length triples — which, on 
 voice interface, is a regression measured in minutes of unwanted speech. Probe
 both.
 
-## Multilingual support (English + Spanish)
-The architecture supports this with very little added code, and it is a genuine
-requirement: one intended user is not an English speaker.
+## Multilingual support (German default, English + Spanish on request)
+Everything the user hears or sees in normal mode is German; the owner is
+addressed as "Master". Speech input stays multilingual.
 
 - **Auto-detect per turn.** faster-whisper returns `detected_language` with each
-  transcript. That threads into the LLM call (respond in the same language) and
-  into TTS (pick a matching voice).
+  transcript. It is stored with the turn and picks the fixed fallback lines
+  (apology / empty-reply ack have en/es variants), but it no longer picks the
+  reply language: the system prompt fixes replies to German, and
+  `turn_runner.REPLY_LANGUAGE` voices them with the German voice.
 - **Voice mapping** (`VOICE_BY_LANG` in `src/text_to_speech.py`):
   ```python
   VOICE_BY_LANG = {
-      'en': 'en-US-GuyNeural',      # calm, British-tinged male
+      'de': 'de-DE-ConradNeural',   # default reply voice
+      'en': 'en-GB-RyanNeural',     # calm British male
       'es': 'es-MX-JorgeNeural',    # formal male, butler-like
   }
   ```
-- **System prompt addendum**: respond in the language spoken; use the formal
-  *usted* form in Spanish; match Latin American Spanish conventions.
+  An explicitly requested English reply is still voiced by the German voice.
+- **What stays English**: tool results only Claude reads, prompts/tool
+  descriptions, logs (self_review/self_status parse them), identifiers and
+  wire values. Scheduled briefings are composed in English (the composers are
+  also tool results) and translated to German at fire time
+  (`reminders._translate_or_keep`, wired to `llm.stream_translation`).
+- **System prompt addendum** for an explicit Spanish request: formal *usted*,
+  Latin American conventions.
 - **Interpreter mode** is the recombination payoff: "be my interpreter" stops
   Jarvis answering and makes him *relay* — each utterance translated into the
   other language of the configured pair and spoken in that language's voice,
-  continuously, with no wake word between turns, until "stop interpreting".
+  continuously, with no wake word between turns, until "stop interpreting"
+  (German: "sei mein Dolmetscher" / "Dolmetschen beenden"). A German owner sets
+  `JARVIS_INTERPRETER_LANGS=de,es`; the start/stop confirmations follow the pair.
   Built from the per-turn language detection and voice map that already existed.
 - **Wake-word caveat**: the `hey_jarvis` model is English-trained, so a
   Spanish-accented "Jarvis" (soft J) triggers less reliably. Mitigations, in

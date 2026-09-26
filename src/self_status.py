@@ -129,10 +129,10 @@ STATUS_REPORT_TOOL = {
         "calendar reminders, process memory) plus a count of concerning "
         "lines in this "
         "session's log. Read the result back CONCISELY — if everything "
-        "is healthy say so in a single sentence ('all systems nominal, "
-        "sir'); only enumerate problems unless the user explicitly asked "
-        "for a full report. M56's homelab_status is the homelab-only "
-        "view; this is the broader in-process roll-call."
+        "is healthy say so in a single sentence ('Alle Systeme laufen "
+        "einwandfrei, Master.'); only enumerate problems unless the user "
+        "explicitly asked for a full report. M56's homelab_status is the "
+        "homelab-only view; this is the broader in-process roll-call."
     ),
     "input_schema": {"type": "object", "properties": {}, "required": []},
 }
@@ -143,7 +143,7 @@ def execute_status_report(params: dict) -> str:  # noqa: ARG001 — param-less
     a getter that raises renders as 'name: error reading' and the report
     continues."""
     if not _REGISTRY:
-        return ("No subsystems registered for status reporting, sir — "
+        return ("No subsystems registered for status reporting, Master — "
                 "this is unexpected; logs may help.")
     lines: list[str] = []
     for name, getter in _REGISTRY.items():

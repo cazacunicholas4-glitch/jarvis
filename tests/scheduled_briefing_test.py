@@ -39,9 +39,9 @@ print(f"add(action=briefing): stored OK id={rec['id']}")
 cancel(rid=rec["id"])
 print("cleanup: cancelled")
 
-assert _greeting_for(7) == "Good morning, sir."
-assert _greeting_for(14) == "Good afternoon, sir."
-assert _greeting_for(20) == "Good evening, sir."
+assert _greeting_for(7) == "Guten Morgen, Master."
+assert _greeting_for(14) == "Guten Tag, Master."
+assert _greeting_for(20) == "Guten Abend, Master."
 print("greeting: morning/afternoon/evening OK")
 
 res = execute_set_reminder({"message": "x", "delay_seconds": 10, "action": "xxx"})

@@ -245,8 +245,8 @@ class JarvisUI:
         else:
             self.mute_event.clear()
         self._console_call("set_muted", muted)
-        self._console_call("add_system_text", "muted — Jarvis will respond in text only." if muted
-                                     else "unmuted — Jarvis will speak again.")
+        self._console_call("add_system_text", "Stumm geschaltet. Jarvis antwortet nur schriftlich." if muted
+                                     else "Ton wieder an. Jarvis spricht wieder.")
 
     def _handle_toggle_mute(self) -> None:
         """Tray menu callback. Runs on pystray's thread; UI updates inside
@@ -272,8 +272,8 @@ class JarvisUI:
             self.engineer_event.clear()
         self._console_call("set_engineer", on)
         self._console_call("add_system_text", 
-            "engineer mode on — deeper, structured replies + extended thinking."
-            if on else "engineer mode off — back to concise."
+            "Ingenieursmodus an. Ausführlichere, strukturierte Antworten und erweitertes Denken."
+            if on else "Ingenieursmodus aus. Wieder kurze Antworten."
         )
 
     def _handle_toggle_engineer(self) -> None:
@@ -528,14 +528,14 @@ class JarvisUI:
             if autostart.is_enabled():
                 autostart.disable()
                 print("[autostart] disabled")
-                self._console_call("add_system_text", "autostart disabled.")
+                self._console_call("add_system_text", "Autostart deaktiviert.")
             else:
                 autostart.enable()
                 print(f"[autostart] enabled ({autostart.shortcut_path()})")
-                self._console_call("add_system_text", "autostart enabled.")
+                self._console_call("add_system_text", "Autostart aktiviert.")
         except Exception as exc:
             print(f"[autostart] toggle failed: {exc}")
-            self._console_call("add_system_text", f"autostart toggle failed: {exc}")
+            self._console_call("add_system_text", f"Autostart konnte nicht umgeschaltet werden: {exc}")
 
     def _handle_quit(self) -> None:
         # Fires on tray's thread when user clicks Quit. Coordinate teardown:
@@ -562,7 +562,7 @@ class JarvisUI:
         path; main() picks up the flag after worker.join() and fires the
         actual relaunch from there."""
         self._relaunch_mode = "normal"
-        self._console_call("add_system_text", "restarting Jarvis…")
+        self._console_call("add_system_text", "Jarvis wird neu gestartet…")
         print("[ui] restart requested — will relaunch after shutdown completes")
         self._handle_quit()
 
@@ -576,7 +576,7 @@ class JarvisUI:
         shutting down by then) but no new instance starts. That's the
         "occasional sudo" tradeoff documented in the M41 milestone."""
         self._relaunch_mode = "elevated"
-        self._console_call("add_system_text", "restarting Jarvis (Administrator)…")
+        self._console_call("add_system_text", "Jarvis wird neu gestartet (Administrator)…")
         print("[ui] elevated restart requested — UAC will fire after shutdown")
         self._handle_quit()
 
@@ -589,12 +589,12 @@ class JarvisUI:
             path = autostart.create_desktop_shortcut()
         except Exception as exc:
             print(f"[shortcut] create failed: {exc}")
-            self._console_call("add_system_text", f"desktop shortcut failed: {exc}")
+            self._console_call("add_system_text", f"Desktopverknüpfung konnte nicht erstellt werden: {exc}")
             return
 
         self._console_call("add_system_text", 
-            f"desktop shortcut created: {path.name}. "
-            "Right-click it → Pin to taskbar."
+            f"Desktopverknüpfung erstellt: {path.name}. "
+            "Rechtsklick darauf → An Taskleiste anheften."
         )
         # explorer.exe /select,<path>  opens the parent folder with the file
         # pre-selected. Best-effort: if Explorer can't be invoked for some

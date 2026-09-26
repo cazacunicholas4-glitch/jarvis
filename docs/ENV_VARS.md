@@ -183,13 +183,13 @@ Notes:
 | Variable | Default | Read in | Purpose |
 |----------|---------|---------|---------|
 | `JARVIS_PRESENCE_ARM_DELAY` | `60.0` | config.py | Seconds to defer auto-arm after a "leave" ping; cancelled by an "arrive". Damps geofence boundary-flap. |
-| `JARVIS_PRESENCE_GREETING` | `Welcome home, sir.` | config.py | Spoken on an arrive that disarms an armed house. |
+| `JARVIS_PRESENCE_GREETING` | `Willkommen zu Hause, Master.` | config.py | Spoken on an arrive that disarms an armed house. |
 
 ## Interpreter mode (M87)
 
 | Variable | Default | Read in | Purpose |
 |----------|---------|---------|---------|
-| `JARVIS_INTERPRETER_LANGS` | `""` (→ `en,es`) | config.py | Language pair as `primary,secondary`. Each side is spoken in that language's `VOICE_BY_LANG` voice. |
+| `JARVIS_INTERPRETER_LANGS` | `""` (→ `en,es`) | config.py | Language pair as `primary,secondary`. Each side is spoken in that language's `VOICE_BY_LANG` voice. A German-speaking owner sets `de,es`; the start/stop confirmations follow the pair. |
 
 ## Ambient HUD (M84)
 
@@ -202,7 +202,7 @@ Notes:
 | Variable | Default | Read in | Purpose |
 |----------|---------|---------|---------|
 | `JARVIS_HOMELAB_MONITOR` | `""` (off) | config.py | Start the poll loop at launch (opt-in). |
-| `JARVIS_HOMELAB_LABEL` | `the Plex laptop` | homelab_monitor.py | Spoken name of the monitored host. |
+| `JARVIS_HOMELAB_LABEL` | `der Plex-Laptop` | homelab_monitor.py | Spoken name of the monitored host. |
 | `JARVIS_HOMELAB_POLL_SECONDS` | `60` (floor 30) | homelab_monitor.py | Poll cadence. |
 | `JARVIS_HOMELAB_FAIL_THRESHOLD` | `3` (floor 1) | homelab_monitor.py | Consecutive fails before OK→DOWN (flap damping). |
 | `JARVIS_HOMELAB_DISK_MIN_PCT` | `10` (floor 1) | homelab_monitor.py | Free-space % below which a drive is "low". |

@@ -226,8 +226,8 @@ def listen_loop(
                         pc_speaking, announce_speaking, mic_device=mic_device)
 
     # 2026-08-16 — the challenge listening window. Owned here (the only
-    # consumer) and handed to security, which raises it once "Identify
-    # yourself, sir." has finished playing and lowers it when the challenge
+    # consumer) and handed to security, which raises it once "Identifizieren
+    # Sie sich, Master." has finished playing and lowers it when the challenge
     # resolves. Registered defensively: an older/stubbed watcher without the
     # setter simply never raises it, and the wake word is still the way in.
     challenge_listen = threading.Event()
@@ -435,7 +435,7 @@ def listen_loop(
                     text = (t.text or "").strip()
                     if not text:
                         ui.add_system_text(
-                            "(no speech detected in phone audio)"
+                            "(keine Sprache in der Handy-Aufnahme erkannt)"
                         )
                         return
                     # Whisper-detected language flows through (memory tag and
@@ -451,7 +451,7 @@ def listen_loop(
                         file=sys.stderr,
                     )
                     ui.add_system_text(
-                        f"phone audio error: {type(exc).__name__}"
+                        f"Fehler bei der Handy-Aufnahme: {type(exc).__name__}"
                     )
             threading.Thread(
                 target=_worker, name="PhoneAudioSTT", daemon=True
@@ -509,7 +509,7 @@ def listen_loop(
             if mic_failures:
                 print("[audio] microphone recovered — voice loop resuming",
                       file=sys.stderr)
-                ui.add_system_text("🎙 Microphone recovered — listening again.")
+                ui.add_system_text("🎙 Mikrofon wieder verfügbar. Ich höre wieder zu.")
                 mic_failures = 0
             # M51: True ⇒ the previous turn just ended; listen for a follow-up
             # WITHOUT requiring "Hey Jarvis" (a longer pre-speech window;
@@ -631,7 +631,7 @@ def listen_loop(
                     continue
 
                 # 2026-08-16: a live security challenge is a listening window
-                # too. "Identify yourself, sir." is a QUESTION, and it used to
+                # too. "Identifizieren Sie sich, Master." is a QUESTION, and it used to
                 # drop straight back to IDLE — so answering it meant saying
                 # "Hey Jarvis" first, then the passphrase. Measured live, that
                 # cost 7 s of a 15 s budget before the passphrase was even
@@ -675,7 +675,7 @@ def listen_loop(
                     if reset_event.is_set():
                         if runner.has_active_conversation():
                             print("[main] conversation reset (manual; sealing active session)")
-                            ui.add_system_text("conversation reset.")
+                            ui.add_system_text("Gespräch zurückgesetzt.")
                         else:
                             print("[main] reset clicked, but no active conversation to seal")
                         runner.seal_and_refresh()
@@ -1119,9 +1119,9 @@ def listen_loop(
                 if mic_failures == 1:
                     traceback.print_exc(file=sys.stderr)
                     ui.add_system_text(
-                        "⚠ Microphone unavailable — voice commands are down; retrying…")
+                        "⚠ Mikrofon nicht verfügbar. Sprachbefehle sind ausgefallen, neuer Versuch läuft…")
                     runner.speak_line(
-                        "I seem to have lost the microphone, sir. I'll keep trying.")
+                        "Ich habe offenbar das Mikrofon verloren, Master. Ich versuche es weiter.")
                 print(f"[audio] voice loop error ({type(exc).__name__}: {exc}) — "
                       f"retry {mic_failures} in {delay:.0f}s", file=sys.stderr)
                 ui.shutdown.wait(delay)

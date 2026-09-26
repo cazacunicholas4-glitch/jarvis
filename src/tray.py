@@ -37,6 +37,16 @@ class State(Enum):
     SPEAKING = (51, 204, 51)      # green
 
 
+# German display names for the tooltip. Display only: the enum names stay,
+# because ui.py sends state.name.lower() to the phone PWA as a wire value.
+STATE_DISPLAY_DE = {
+    State.IDLE: "bereit",
+    State.LISTENING: "hört zu",
+    State.THINKING: "denkt nach",
+    State.SPEAKING: "spricht",
+}
+
+
 def _make_circle(rgb: tuple[int, int, int], brightness: float = 1.0, size: int = 64) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
@@ -111,20 +121,20 @@ class JarvisTray:
 
         menu_items: list[pystray.MenuItem] = []
         if on_show_window is not None:
-            menu_items.append(pystray.MenuItem("Show window", self._handle_show_window, default=True))
+            menu_items.append(pystray.MenuItem("Fenster anzeigen", self._handle_show_window, default=True))
         if on_reset is not None:
-            menu_items.append(pystray.MenuItem("Reset conversation", self._handle_reset))
+            menu_items.append(pystray.MenuItem("Gespräch zurücksetzen", self._handle_reset))
         if log_path is not None:
-            menu_items.append(pystray.MenuItem("Open log", self._handle_open_log))
+            menu_items.append(pystray.MenuItem("Log öffnen", self._handle_open_log))
         if memory_dir is not None:
-            menu_items.append(pystray.MenuItem("Open memory folder", self._handle_open_memory))
+            menu_items.append(pystray.MenuItem("Speicherordner öffnen", self._handle_open_memory))
         if on_create_shortcut is not None:
             # One-shot utility: drops a Jarvis.lnk on the Desktop, then opens
             # Explorer with it selected so the user can right-click → Pin to
             # taskbar. Windows blocks programmatic pinning, so this is the
             # closest we can get to a "pin to taskbar" button.
             menu_items.append(pystray.MenuItem(
-                "Create desktop shortcut", self._handle_create_shortcut,
+                "Desktopverknüpfung erstellen", self._handle_create_shortcut,
             ))
         if mute_enabled is not None and on_mute_toggle is not None:
             # Voice-output mute. Toggle bypasses TTS while leaving voice input
@@ -132,7 +142,7 @@ class JarvisTray:
             # sleeping nearby. State lives on JarvisUI's mute_event; the
             # `checked` lambda re-evaluates each menu open.
             menu_items.append(pystray.MenuItem(
-                "Mute (text only)",
+                "Stumm (nur Text)",
                 self._handle_toggle_mute,
                 checked=lambda item: bool(self._mute_enabled()),
             ))
@@ -141,7 +151,7 @@ class JarvisTray:
             # structured replies (paragraphs, bullets, code blocks). Costs
             # more tokens; off by default. Independent of mute.
             menu_items.append(pystray.MenuItem(
-                "Engineer mode",
+                "Ingenieursmodus",
                 self._handle_toggle_engineer,
                 checked=lambda item: bool(self._engineer_enabled()),
             ))
@@ -151,7 +161,7 @@ class JarvisTray:
             # tray toggle is just a faster surface for testing. Overrides
             # mute (security alerts are louder than quiet hours).
             menu_items.append(pystray.MenuItem(
-                "Security mode",
+                "Sicherheitsmodus",
                 self._handle_toggle_security,
                 checked=lambda item: bool(self._security_enabled()),
             ))
@@ -162,7 +172,7 @@ class JarvisTray:
             # `checked` re-evaluates each menu open so it tracks voice/.env
             # changes too.
             menu_items.append(pystray.MenuItem(
-                "Homelab monitoring",
+                "Homelab-Überwachung",
                 self._handle_toggle_homelab,
                 checked=lambda item: bool(self._homelab_enabled()),
             ))
@@ -174,7 +184,7 @@ class JarvisTray:
             # is heavy (downloads the ~325 MB Cnn14 checkpoint on a fresh
             # install) — subsequent arms are quick.
             menu_items.append(pystray.MenuItem(
-                "Acoustic awareness",
+                "Akustische Überwachung",
                 self._handle_toggle_acoustic,
                 checked=lambda item: bool(self._acoustic_enabled()),
             ))
@@ -184,7 +194,7 @@ class JarvisTray:
             # the TV). Fail-open — a degraded clip of an enrolled user still
             # passes. Same state the JARVIS_SPEAKER_GATE .env flag sets.
             menu_items.append(pystray.MenuItem(
-                "Voice lock (only enrolled voices)",
+                "Stimmsperre (nur registrierte Stimmen)",
                 self._handle_toggle_speaker_gate,
                 checked=lambda item: bool(self._speaker_gate_enabled()),
             ))
@@ -195,14 +205,14 @@ class JarvisTray:
             # interaction. Same callback fires from the voice intent
             # "Jarvis, enroll my face" via main.py's listen_loop.
             menu_items.append(pystray.MenuItem(
-                "Enroll my face", self._handle_enroll_face,
+                "Mein Gesicht registrieren", self._handle_enroll_face,
             ))
         if on_enroll_voice is not None:
             # M69: enroll the user's voice for speaker ID. Same voice-first
             # flow (Jarvis announces, records, announces result) and the same
             # callback the "Jarvis, enroll my voice" intent fires.
             menu_items.append(pystray.MenuItem(
-                "Enroll my voice", self._handle_enroll_voice,
+                "Meine Stimme registrieren", self._handle_enroll_voice,
             ))
         if on_reindex_knowledge is not None:
             # M45: rebuild the FTS5 knowledge index from the corpus folder.
@@ -211,13 +221,13 @@ class JarvisTray:
             # knowledge" voice intent fires. Use it after editing files in
             # the knowledge folder by hand.
             menu_items.append(pystray.MenuItem(
-                "Reindex knowledge", self._handle_reindex_knowledge,
+                "Wissen neu indizieren", self._handle_reindex_knowledge,
             ))
         if autostart_enabled is not None and on_autostart_toggle is not None:
             # Pystray re-evaluates `checked` each time the menu opens, so the
             # checkmark stays in sync if the shortcut is added/removed externally.
             menu_items.append(pystray.MenuItem(
-                "Start with Windows",
+                "Mit Windows starten",
                 self._handle_toggle_autostart,
                 checked=lambda item: bool(self._autostart_enabled()),
             ))
@@ -229,7 +239,7 @@ class JarvisTray:
             # session. See JarvisUI._handle_restart for the flag-and-defer
             # mechanics; the relaunch itself fires from main() after worker
             # join, so the new instance doesn't fight the old one for the mic.
-            menu_items.append(pystray.MenuItem("Restart Jarvis", self._handle_restart))
+            menu_items.append(pystray.MenuItem("Jarvis neu starten", self._handle_restart))
         if on_restart_elevated is not None:
             # M41: "Restart Jarvis (Administrator)" — only shown when the
             # current process is NOT already elevated. No point offering an
@@ -242,14 +252,14 @@ class JarvisTray:
             from src.autostart import is_admin  # noqa: PLC0415 — defer to break import cycle
             if not is_admin():
                 menu_items.append(pystray.MenuItem(
-                    "Restart Jarvis (Administrator)", self._handle_restart_elevated,
+                    "Jarvis neu starten (Administrator)", self._handle_restart_elevated,
                 ))
-        menu_items.append(pystray.MenuItem("Quit", self._handle_quit))
+        menu_items.append(pystray.MenuItem("Beenden", self._handle_quit))
 
         self.icon = pystray.Icon(
             "jarvis",
             _make_circle(State.IDLE.value),
-            "Jarvis (idle)",
+            f"Jarvis ({STATE_DISPLAY_DE[State.IDLE]})",
             menu=pystray.Menu(*menu_items),
         )
 
@@ -349,7 +359,8 @@ class JarvisTray:
         while not self.shutdown.is_set():
             try:
                 state = self._state
-                self.icon.title = f"Jarvis ({state.name.lower()})"
+                self.icon.title = (
+                    f"Jarvis ({STATE_DISPLAY_DE.get(state, state.name.lower())})")
 
                 if state == State.SPEAKING:
                     # Sine-wave pulse, brightness 0.4..1.0 at 2 Hz, 8 fps.

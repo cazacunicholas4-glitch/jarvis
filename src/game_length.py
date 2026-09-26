@@ -130,7 +130,7 @@ def _format(entry) -> str:
     if not lines:
         return (
             f"How Long To Beat lists '{name}' but has no completion-time "
-            "data yet, sir."
+            "data yet, Master."
         )
     return f"How long to beat {name}:\n" + "\n".join(lines)
 
@@ -139,7 +139,7 @@ def execute_game_length_tool(params: dict) -> str:
     """Run the tool. Always returns a string for Claude — never raises."""
     name = (params.get("name") or "").strip()
     if not name:
-        return "A game title is required, sir."
+        return "A game title is required, Master."
 
     client = _get_client()
     if client is None:
@@ -153,11 +153,11 @@ def execute_game_length_tool(params: dict) -> str:
     except Exception as exc:  # noqa: BLE001 — HLTB scrape can fail many ways
         print(f"[game_length] search failed for {name!r}: {exc}",
               file=sys.stderr)
-        return f"How Long To Beat lookup failed for '{name}', sir."
+        return f"How Long To Beat lookup failed for '{name}', Master."
 
     if not results:
         return (
-            f"I couldn't find a game called '{name}' on How Long To Beat, sir."
+            f"I couldn't find a game called '{name}' on How Long To Beat, Master."
         )
 
     # Highest-similarity match wins (HLTB returns several candidates ranked by

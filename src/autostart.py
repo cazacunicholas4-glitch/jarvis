@@ -148,7 +148,7 @@ def enable() -> None:
     call, so re-toggling fixes a stale shortcut after the project moves."""
     _write_shortcut(
         _SHORTCUT_PATH,
-        description="Jarvis voice assistant — silent background launcher",
+        description="Jarvis Sprachassistent – stiller Start im Hintergrund",
     )
 
 
@@ -221,7 +221,7 @@ def create_desktop_shortcut() -> Path:
     icon = _generate_icon()
     _write_shortcut(
         _DESKTOP_SHORTCUT_PATH,
-        description="Jarvis — voice assistant",
+        description="Jarvis – Sprachassistent",
         icon_path=icon,
     )
     return _DESKTOP_SHORTCUT_PATH

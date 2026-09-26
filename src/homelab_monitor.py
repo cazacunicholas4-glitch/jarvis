@@ -103,10 +103,11 @@ _PLEX_PORT = 32400
 
 
 def _host_label() -> str:
-    """Spoken name for the monitored box. Default is generic ('the Plex
-    laptop') so nothing hardcodes a hostname; override with JARVIS_HOMELAB_LABEL
+    """Spoken name for the monitored box. Default is generic ('der
+    Plex-Laptop', nominative: the alert sentences only use the label as the
+    subject) so nothing hardcodes a hostname; override with JARVIS_HOMELAB_LABEL
     (e.g. 'MEDIA-HOST') for a friendlier alert."""
-    return os.getenv("JARVIS_HOMELAB_LABEL", "the Plex laptop").strip() or "the Plex laptop"
+    return os.getenv("JARVIS_HOMELAB_LABEL", "der Plex-Laptop").strip() or "der Plex-Laptop"
 
 
 # --- Check primitives ------------------------------------------------------
@@ -233,14 +234,14 @@ class HomelabMonitor:
         if self._plex_host:
             checks.append(Check(
                 name="host", title=label, run=self._check_host,
-                down=lambda d: f"Sir — {label} has gone unreachable.",
-                up=lambda d: f"{label} is back online, sir.",
+                down=lambda d: f"Master — {label} ist nicht mehr erreichbar.",
+                up=lambda d: f"Master, {label} ist wieder online.",
                 status=lambda r: "reachable" if r.ok else "unreachable",
             ))
             checks.append(Check(
                 name="plex", title="Plex", run=self._check_plex, depends_on="host",
-                down=lambda d: f"Sir — Plex on {label} has stopped responding.",
-                up=lambda d: "Plex is responding again, sir.",
+                down=lambda d: f"Master — Plex reagiert nicht mehr. Betroffen ist {label}.",
+                up=lambda d: "Plex reagiert wieder, Master.",
                 status=lambda r: "responding" if r.ok else "not responding",
             ))
         if self._client is not None:
@@ -248,10 +249,10 @@ class HomelabMonitor:
                 name="disk", title="Disk space", run=self._check_disk,
                 depends_on="host",
                 down=lambda d: (
-                    f"Sir — disk space on {label} is running low"
+                    f"Master — {label} hat kaum noch freien Speicherplatz"
                     + (f": {d}." if d else ".")
                 ),
-                up=lambda d: f"Disk space on {label} has recovered, sir.",
+                up=lambda d: f"Master, {label} hat wieder genug freien Speicherplatz.",
                 status=lambda r: (
                     ("healthy — " if r.ok else "LOW — ") + (r.detail or "usage unknown")
                 ),
@@ -293,8 +294,8 @@ class HomelabMonitor:
             return CheckResult(True, "")
         worst = min(drives, key=lambda d: d["pct_free"])
         used = 100 - worst["pct_free"]
-        detail = (f"drive {worst['id']} at {used}% used "
-                  f"({worst['pct_free']}% free)")
+        detail = (f"Laufwerk {worst['id']} zu {used} Prozent belegt "
+                  f"({worst['pct_free']} Prozent frei)")
         return CheckResult(worst["pct_free"] >= _DISK_MIN_PCT, detail)
 
     # ------------------------------------------------------------------
@@ -311,8 +312,8 @@ class HomelabMonitor:
             print("[homelab] no checks configured (set PLEX_LAPTOP_HOST) — "
                   "not starting", file=sys.stderr)
             self._safe_announce(
-                "There's nothing for me to monitor yet, sir — the homelab "
-                "isn't configured."
+                "Es gibt noch nichts zu überwachen, Master. Das Homelab "
+                "ist nicht konfiguriert."
             )
             return
         for tracker in self._trackers.values():
@@ -334,7 +335,7 @@ class HomelabMonitor:
         # launch is noise. A MANUAL tray toggle still announces (deliberate user
         # action wants audible confirmation).
         if announce:
-            self._safe_announce("I'll keep an eye on the homelab, sir.")
+            self._safe_announce("Ich behalte das Homelab im Auge, Master.")
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(
                 target=self._watch_loop, name="HomelabMonitor", daemon=True
@@ -348,7 +349,7 @@ class HomelabMonitor:
         self._active.clear()
         self._stop.set()
         print("[homelab] monitoring deactivated", file=sys.stderr)
-        self._safe_announce("I'll stop watching the homelab, sir.")
+        self._safe_announce("Ich beende die Überwachung des Homelabs, Master.")
 
     def shutdown(self) -> None:
         """App-quit: wind the thread down silently (it's a daemon, so it dies
@@ -452,7 +453,7 @@ class HomelabMonitor:
         Dependency-aware: if the host is down, dependent checks read
         'unknown' rather than running a doomed probe."""
         if not self._checks:
-            return ("The homelab isn't configured for monitoring, sir — "
+            return ("The homelab isn't configured for monitoring, Master — "
                     "set PLEX_LAPTOP_HOST in the environment.")
         results: dict[str, CheckResult] = {}
         lines: list[str] = []
@@ -521,9 +522,9 @@ def execute_homelab_status(params: dict) -> str:  # noqa: ARG001 — param-less 
     string for Claude to voice."""
     monitor = _ACTIVE_MONITOR
     if monitor is None:
-        return ("Homelab monitoring isn't available in this session, sir.")
+        return ("Homelab monitoring isn't available in this session, Master.")
     try:
         return monitor.status_report()
     except Exception as exc:  # noqa: BLE001 — defensive
         print(f"[homelab] status_report failed: {exc}", file=sys.stderr)
-        return "I couldn't get the homelab status just now, sir."
+        return "I couldn't get the homelab status just now, Master."

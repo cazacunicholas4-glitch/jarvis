@@ -75,7 +75,7 @@ def _fetch_events(start_utc: datetime, end_utc: datetime) -> tuple[list[Calendar
     Returns (events, status): on success (list, ""); on any failure
     (None, voice-friendly error); unconfigured returns a clear setup message."""
     if not ICAL_URL:
-        return (None, "Outlook calendar isn't configured, sir — set "
+        return (None, "Outlook calendar isn't configured, Master — set "
                 "OUTLOOK_ICAL_URL in .env (Outlook.com → Publish a calendar). "
                 "See .env.example for setup instructions.")
     return _fetch_events_ical(start_utc, end_utc)
@@ -126,19 +126,19 @@ def _fetch_events_ical(start_utc: datetime, end_utc: datetime) -> tuple[list[Cal
                   file=sys.stderr)
             if attempt == 3:
                 return (None,
-                        "I couldn't reach the Outlook iCal feed just now, sir.")
+                        "I couldn't reach the Outlook iCal feed just now, Master.")
             time.sleep(wait)
     if resp.status_code != 200:
         print(f"[outlook] ical HTTP {resp.status_code}: {resp.text[:200]}",
               file=sys.stderr)
-        return (None, f"Outlook iCal returned HTTP {resp.status_code}, sir — "
+        return (None, f"Outlook iCal returned HTTP {resp.status_code}, Master — "
                 f"check the URL in OUTLOOK_ICAL_URL is still valid.")
 
     # 2026-08-18: a 200 with an EMPTY body is a transient server hiccup, not a
     # misconfigured URL. Observed three times on 2026-08-12 — Outlook returned
     # 200 + b'', which fell through to the parser and surfaced as
     #   "ical parse failed: Found no components where exactly one is required: b''"
-    #   -> "I couldn't parse the Outlook iCal feed, sir — the URL might be
+    #   -> "I couldn't parse the Outlook iCal feed, Master — the URL might be
     #      pointing at something else."
     # The URL was fine the whole time. That message sends whoever reads it
     # chasing a configuration problem that does not exist, which is worse than
@@ -148,7 +148,7 @@ def _fetch_events_ical(start_utc: datetime, end_utc: datetime) -> tuple[list[Cal
         print("[outlook] ical returned HTTP 200 with an EMPTY body — "
               "transient server hiccup, not a bad URL", file=sys.stderr)
         return (None, "The Outlook calendar feed came back empty just now, "
-                "sir — I'll try again shortly.")
+                "Master — I'll try again shortly.")
 
     # Lazy imports — keeps the module loadable even before
     # recurring-ical-events is installed (e.g. on a fresh checkout where
@@ -158,20 +158,20 @@ def _fetch_events_ical(start_utc: datetime, end_utc: datetime) -> tuple[list[Cal
         import recurring_ical_events  # noqa: PLC0415 — lazy
     except ImportError as exc:
         print(f"[outlook] ical libs missing: {exc}", file=sys.stderr)
-        return (None, "I'm missing the iCal parsing library, sir — "
+        return (None, "I'm missing the iCal parsing library, Master — "
                 "run `pip install -r requirements.txt`.")
     try:
         cal = icalendar.Calendar.from_ical(resp.content)
     except Exception as exc:  # noqa: BLE001 — many parser failure modes
         print(f"[outlook] ical parse failed: {exc}", file=sys.stderr)
-        return (None, "I couldn't parse the Outlook iCal feed, sir — "
+        return (None, "I couldn't parse the Outlook iCal feed, Master — "
                 "the URL might be pointing at something else.")
     try:
         raw_events = recurring_ical_events.of(cal).between(start_utc, end_utc)
     except Exception as exc:  # noqa: BLE001 — RRULE expansion can throw
         print(f"[outlook] ical recurrence expansion failed: {exc}",
               file=sys.stderr)
-        return (None, "I couldn't expand recurring events from the feed, sir.")
+        return (None, "I couldn't expand recurring events from the feed, Master.")
 
     events: list[CalendarEvent] = []
     for ev in raw_events:
@@ -186,7 +186,7 @@ def _normalise_ical_event(vevent) -> CalendarEvent | None:
     """Convert an icalendar VEVENT to our CalendarEvent shape."""
     try:
         from datetime import date  # noqa: PLC0415 — narrow scope
-        subject = str(vevent.get("SUMMARY", "")).strip() or "(no subject)"
+        subject = str(vevent.get("SUMMARY", "")).strip() or "(ohne Titel)"
         location = str(vevent.get("LOCATION", "")).strip()
         dtstart_prop = vevent.get("DTSTART")
         dtend_prop = vevent.get("DTEND")
@@ -328,7 +328,7 @@ def execute_calendar_tool(params: dict) -> str:
     raw = (params.get("timeframe") or "today").strip().lower()
     win = _window_for(raw)
     if win is None:
-        return (f"I don't recognise the timeframe '{raw}', sir — try "
+        return (f"I don't recognise the timeframe '{raw}', Master — try "
                 f"today, tomorrow, this_week, or next_24h.")
     start_local, end_local, label = win
     events, err = _fetch_events(
@@ -345,7 +345,7 @@ def _format_events(events: list[CalendarEvent], label: str) -> str:
     block. Claude voices this conversationally; the format is just for the
     tool result."""
     if not events:
-        return f"Nothing on your calendar {label}, sir."
+        return f"Nothing on your calendar {label}, Master."
     lines = [f"{len(events)} event(s) {label}:"]
     for ev in events:
         when = _format_event_time(ev)

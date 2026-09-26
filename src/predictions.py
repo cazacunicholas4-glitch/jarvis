@@ -141,7 +141,7 @@ def _stable_id(claim: str, made_at: str) -> str:
 
 _MINER_SYSTEM = """You extract FALSIFIABLE SPORTS PREDICTIONS that the assistant (named Jarvis) made about FUTURE outcomes, from a transcript of past voice conversations.
 
-Include ONLY a prediction that JARVIS HIMSELF asserted as his own pick or lean about a future sports result — e.g. "I'd lean Spurs", "my pick is the Chiefs", "they'll win in six".
+Include ONLY a prediction that JARVIS HIMSELF asserted as his own pick or lean about a future sports result — e.g. "I'd lean Spurs", "my pick is the Chiefs", "they'll win in six" (he now usually speaks German, e.g. "Ich tippe auf die Spurs", "mein Favorit sind die Chiefs", "die gewinnen in sechs Spielen").
 
 DO NOT include:
 - Anything the USER said or predicted.
@@ -563,7 +563,7 @@ def format_followups(recs: list[dict]) -> str:
     """Render resolved predictions as a spoken follow-up section. '' if none."""
     if not recs:
         return ""
-    lines = ["Following up on earlier predictions, sir:"]
+    lines = ["Following up on earlier predictions, Master:"]
     for r in recs:
         claim = (r.get("claim") or "").rstrip(".")
         actual = (r.get("actual") or "").strip()

@@ -2,7 +2,7 @@
 
 Grabs a single still frame from a USB/UVC webcam and returns it as a Messages-
 API image content block, so Claude *sees* it and can answer in voice ("the pet
-is on the couch and you left the kitchen light on, sir"). Unlocks the whole
+is on the couch and you left the kitchen light on, Master"). Unlocks the whole
 class of "what do you see / is X there / did Y happen" queries.
 
 Why a USB webcam (not an IP/Ring camera) for v1: the user's Logitech C920e is

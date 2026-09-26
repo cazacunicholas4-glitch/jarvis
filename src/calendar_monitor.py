@@ -6,7 +6,7 @@ the user's Outlook calendar on demand. M62.2 is the cash-in — Jarvis quietly
 watches that same feed and SPEAKS UP on his own a fixed lead time (default
 15 min) before each event:
 
-    "Sir — your 2 pm standup in 15 minutes."
+    "Master — in 15 Minuten beginnt Ihr Termin: Standup."
 
 The reactive→proactive jump, the same one M56 made for the homelab. Almost
 entirely a recombination:
@@ -402,8 +402,8 @@ class CalendarMonitor:
         """One announce: spoken via the WASAPI-safe Announcer path + a
         Discord push (on a throwaway thread so a slow POST never delays
         the next poll). Same shape as M56's _emit."""
-        unit = "minute" if mins == 1 else "minutes"
-        text = f"Sir — your {ev.subject} in {mins} {unit}."
+        unit = "Minute" if mins == 1 else "Minuten"
+        text = f"Master — in {mins} {unit} beginnt Ihr Termin: {ev.subject}."
         print(f"[calendar] ANNOUNCE: {text}", file=sys.stderr)
         self._safe_announce(text)
         if self._discord:

@@ -34,7 +34,7 @@ import time
 import tkinter as tk
 
 from src import reactor
-from src.tray import State
+from src.tray import STATE_DISPLAY_DE, State
 
 # The transparent-colour key. A near-black almost no real element uses; any
 # pixel exactly this colour is punched fully transparent + click-through.
@@ -398,26 +398,27 @@ class JarvisHUD:
                 cv.coords(bar, bx, self._wave_y - mag, bx, self._wave_y + mag)
                 cv.itemconfig(bar, fill=wave_fill)
 
-            cv.itemconfig(self._label, text=state.name,
+            cv.itemconfig(self._label,
+                          text=STATE_DISPLAY_DE.get(state, state.name).upper(),
                           fill=_blend(_RING, base, 0.85))
             cv.itemconfig(self._clock, text=time.strftime("%H:%M"))
             if self._armed:
-                cv.itemconfig(self._badge, text="● ARMED", fill=_ARMED)
+                cv.itemconfig(self._badge, text="● SCHARF", fill=_ARMED)
             else:
-                cv.itemconfig(self._badge, text="○ SECURE", fill=_RING)
+                cv.itemconfig(self._badge, text="○ UNSCHARF", fill=_RING)
 
             # Research line. Empty when there is nothing to say — an always-on
             # row of "0 tasks" is clutter, and the HUD sits over the user's work.
             if self._tasks_active:
                 dots = "." * (1 + int(t * 2) % 3)      # gentle "working" motion
                 n = self._tasks_active
-                label = f"researching{dots}" if n == 1 else f"researching x{n}{dots}"
+                label = f"Recherche{dots}" if n == 1 else f"{n} Recherchen{dots}"
                 cv.itemconfig(self._research, text=label, fill=_RESEARCH)
             elif self._tasks_pending:
                 n = self._tasks_pending
                 cv.itemconfig(
                     self._research,
-                    text="1 report ready" if n == 1 else f"{n} reports ready",
+                    text="1 Bericht bereit" if n == 1 else f"{n} Berichte bereit",
                     fill=_RESEARCH)
             else:
                 cv.itemconfig(self._research, text="")

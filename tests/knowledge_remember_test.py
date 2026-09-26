@@ -99,7 +99,7 @@ check("schema exposes a `fact` field (string), required",
 with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
     out = execute_knowledge_remember({"fact": ""})
     check("empty fact -> voice-friendly error",
-          "nothing to remember" in out.lower())
+          "nichts zu merken" in out.lower())
     # No .md files should exist.
     md_files = list(Path(tmp).glob("*.md"))
     check("empty fact -> no .md file written", len(md_files) == 0)
@@ -111,7 +111,7 @@ with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
         {"fact": "My four pets are Aria, Basil, Cosmo, and Delta."}
     )
     check("real fact -> voice-friendly confirmation",
-          ("noted" in out.lower() or "saved" in out.lower()))
+          ("notiert" in out.lower() or "gespeichert" in out.lower()))
     md_files = list(Path(tmp).glob("*.md"))
     check("real fact -> exactly one .md file written",
           len(md_files) == 1)
@@ -198,7 +198,7 @@ with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
         {"fact": "My four cats are Constantine, Lucifer, Ares, and Osiris."}
     )
     check("dedup: fully-covered restatement -> honest 'already had it' reply",
-          "already had" in out.lower())
+          "bereits abgelegt" in out.lower())
     check("dedup: fully-covered restatement -> no second file",
           len(list(Path(tmp).glob("*.md"))) == 1)
 
@@ -244,7 +244,7 @@ with tempfile.TemporaryDirectory() as tmp, isolated_knowledge(tmp):
     # note nowhere states that the server IS broken.
     out = execute_knowledge_remember({"fact": "The Plex server is broken."})
     check("large-note: a short distinct fact is NOT reported as already known",
-          "already had" not in out.lower())
+          "bereits abgelegt" not in out.lower())
     check("large-note: a short distinct fact reaches DISK (was silently lost)",
           any("The Plex server is broken." in f.read_text(encoding="utf-8")
               for f in Path(tmp).glob("*.md")))

@@ -51,7 +51,7 @@ GOOD_NIGHT_TOOL = {
         "this whenever the user says 'good night', 'wrap up the day', "
         "'my evening wrap', 'end of day', or 'shut down for the night'. "
         "Read the result back as a natural, calm spoken wrap-up — greet "
-        "the user warmly ('Good evening, sir'), then a sentence or two "
+        "the user warmly ('Guten Abend, Master'), then a sentence or two "
         "per section; do NOT recite verbatim. A wrap is a fresh-state "
         "request: ALWAYS call this tool even if you wrapped up earlier "
         "in this same conversation. The user may want it twice."

@@ -3,8 +3,8 @@
 When Jarvis hears something notable while armed (M58 acoustic awareness), he
 now LOOKS through the camera and says what he sees. This is the "look" half:
 a single, non-streaming Claude vision call that takes a JPEG frame + what was
-heard and returns ONE concise butler-tone sentence ("the office looks
-undisturbed, no one's in view, sir"). The caller pushes that + the photo to
+heard and returns ONE concise butler-tone sentence, in German ("Das Büro
+wirkt unberührt, niemand ist zu sehen, Master."). The caller pushes that + the photo to
 Discord (see main.py's acoustic visual-alert wiring + notifications.send_discord_photo).
 
 Deliberately NOT the streaming agentic stream_response path — this is a leaf
@@ -33,8 +33,9 @@ def build_prompt(heard: str) -> str:
         f"just heard {event}. Look at this webcam frame from the room and report, "
         f"in ONE concise sentence, what you see that's relevant — focus on any "
         f"people, movement, or anything notable. If the room looks normal and "
-        f"empty, say so plainly. British-butler tone, address the user as 'sir', "
-        f"no preamble, no narration that you're looking at a photo."
+        f"empty, say so plainly. British-butler tone, address the user as "
+        f"'Master' (never 'sir'), no preamble, no narration that you're looking "
+        f"at a photo. Write the sentence in German (formal 'Sie')."
     )
 
 

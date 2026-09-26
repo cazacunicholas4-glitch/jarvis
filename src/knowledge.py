@@ -121,8 +121,10 @@ KNOWLEDGE_REMEMBER_TOOL = {
         "names, the wifi password, a 3D-printer profile for a material, a "
         "homelab quirk, a personal preference, a decision they want to "
         "remember. Triggered by phrasings like 'remember [that] X', 'save "
-        "X', 'note X', 'add X to your knowledge', 'don't forget that X' — "
-        "with or without the word 'permanently'. Phrase `fact` as a FULL, "
+        "X', 'note X', 'add X to your knowledge', 'don't forget that X' "
+        "(German: 'merk dir X', 'speichere X', 'notiere X', 'vergiss nicht, "
+        "dass X') — with or without the word 'permanently' ('dauerhaft'). "
+        "Phrase `fact` as a FULL, "
         "SELF-CONTAINED sentence — it will later be matched against the "
         "user's search queries, so be explicit (e.g. 'My four pets are "
         "Aria, Basil, Cosmo, and Delta.' rather than 'pets: "
@@ -357,8 +359,9 @@ def reindex() -> ReindexResult:
     if not corpus.exists():
         return ReindexResult(
             False, 0, 0,
-            f"No knowledge folder yet at {corpus}. Create it and add some "
-            f"notes, sir, then ask me to update my knowledge.",
+            f"Es gibt noch keinen Wissensordner unter {corpus}. Legen Sie ihn "
+            f"an und fügen Sie ein paar Notizen hinzu, Master. Bitten Sie mich "
+            f"dann, mein Wissen zu aktualisieren.",
         )
 
     db = _db_path()
@@ -366,7 +369,9 @@ def reindex() -> ReindexResult:
         db.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         print(f"[knowledge] cannot create db dir: {exc}", file=sys.stderr)
-        return ReindexResult(False, 0, 0, "I couldn't write the knowledge index, sir.")
+        return ReindexResult(
+            False, 0, 0, "Ich konnte den Wissensindex nicht schreiben, Master.",
+        )
 
     conn: sqlite3.Connection | None = None
     try:
@@ -375,8 +380,8 @@ def reindex() -> ReindexResult:
             print("[knowledge] sqlite3 built without FTS5", file=sys.stderr)
             return ReindexResult(
                 False, 0, 0,
-                "This Python's database engine lacks full-text search, so I "
-                "can't index knowledge, sir.",
+                "Der Datenbank dieser Python-Installation fehlt die "
+                "Volltextsuche. Deshalb kann ich kein Wissen indizieren, Master.",
             )
 
         # Rebuild atomically (2026-07-02 QA): Python's sqlite3 in its default
@@ -446,7 +451,10 @@ def reindex() -> ReindexResult:
         conn.commit()
     except sqlite3.Error as exc:
         print(f"[knowledge] reindex sqlite error: {exc}", file=sys.stderr)
-        return ReindexResult(False, 0, 0, "The knowledge index hit a database error, sir.")
+        return ReindexResult(
+            False, 0, 0,
+            "Beim Wissensindex ist ein Datenbankfehler aufgetreten, Master.",
+        )
     finally:
         if conn is not None:
             conn.close()
@@ -454,15 +462,16 @@ def reindex() -> ReindexResult:
     if n_chunks == 0:
         return ReindexResult(
             True, 0, 0,
-            "Your knowledge folder is there but empty, sir — nothing to index yet.",
+            "Ihr Wissensordner ist vorhanden, aber leer, Master. Es gibt noch "
+            "nichts zu indizieren.",
         )
     msg = (
-        f"Knowledge updated, sir — indexed {n_chunks} "
-        f"passage{'s' if n_chunks != 1 else ''} from {n_files} "
-        f"document{'s' if n_files != 1 else ''}"
-        + (", with semantic search."
+        f"Wissen aktualisiert, Master. Ich habe {n_chunks} "
+        f"{'Abschnitt' if n_chunks == 1 else 'Abschnitte'} aus {n_files} "
+        f"{'Dokument' if n_files == 1 else 'Dokumenten'} indiziert"
+        + (", mit semantischer Suche."
            if embedded else
-           " (keyword-only — semantic search is unavailable).")
+           ", nur mit Stichwortsuche. Die semantische Suche ist nicht verfügbar.")
     )
     print(
         f"[knowledge] reindex ok: {n_files} files, {n_chunks} chunks, "
@@ -557,7 +566,7 @@ def _search(query: str, limit: int) -> str:
     db = _db_path()
     if not db.exists():
         return (
-            "I have no knowledge base indexed yet, sir. Add notes to the "
+            "I have no knowledge base indexed yet, Master. Add notes to the "
             "knowledge folder and ask me to update my knowledge."
         )
 
@@ -581,7 +590,7 @@ def _search(query: str, limit: int) -> str:
             except sqlite3.OperationalError as exc:
                 print(f"[knowledge] search op error: {exc}", file=sys.stderr)
                 return (
-                    "My knowledge index isn't ready, sir — ask me to update "
+                    "My knowledge index isn't ready, Master — ask me to update "
                     "my knowledge and try again."
                 )
         # Vector candidates — [] if embeddings unavailable (keyword-only path).
@@ -589,7 +598,7 @@ def _search(query: str, limit: int) -> str:
 
         if not keyword_ids and not vector_ids:
             return (
-                f"Nothing in your knowledge base matches '{query}', sir. "
+                f"Nothing in your knowledge base matches '{query}', Master. "
                 f"It may not be something you've taught me yet."
             )
 
@@ -605,7 +614,7 @@ def _search(query: str, limit: int) -> str:
         }
     except sqlite3.Error as exc:
         print(f"[knowledge] search sqlite error: {exc}", file=sys.stderr)
-        return "The knowledge search hit a database error, sir."
+        return "The knowledge search hit a database error, Master."
     finally:
         if conn is not None:
             conn.close()
@@ -787,14 +796,15 @@ def remember_fact(fact: str) -> str:
     """
     fact = (fact or "").strip()
     if not fact:
-        return "There was nothing to remember, sir."
+        return "Es gab nichts zu merken, Master."
 
     corpus = _corpus_dir()
     try:
         corpus.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         print(f"[knowledge] cannot create corpus dir: {exc}", file=sys.stderr)
-        return "I couldn't reach the knowledge folder to save that, sir."
+        return ("Ich konnte den Wissensordner nicht erreichen, um das zu "
+                "speichern, Master.")
 
     now = datetime.now()
 
@@ -806,7 +816,7 @@ def remember_fact(fact: str) -> str:
             prior = path.read_text(encoding="utf-8").rstrip("\n")
             if _content_tokens(fact) <= _content_tokens(_fact_body(path)):
                 # Already fully covered — record nothing, say so honestly.
-                return "I already had that one filed, sir."
+                return "Das hatte ich bereits abgelegt, Master."
             # Durable + atomic — see src/atomic_io.py. This is a
             # read-modify-write of the WHOLE note, so a torn write here
             # would destroy every fact already accreted into it, not just
@@ -824,10 +834,12 @@ def remember_fact(fact: str) -> str:
             )
             result = reindex()
             if result.ok:
-                return "Noted, sir — I've added that to what I already had on it."
+                return ("Notiert, Master. Ich habe es meiner bisherigen "
+                        "Notiz dazu hinzugefügt.")
             return (
-                "I've added that to your existing note, sir, though the index "
-                "didn't refresh — ask me to update my knowledge."
+                "Ich habe es Ihrer bestehenden Notiz hinzugefügt, Master. Der "
+                "Index wurde aber nicht aktualisiert. Bitten Sie mich, mein "
+                "Wissen zu aktualisieren."
             )
         except OSError as exc:
             # Fall through to writing a new file. A redundant note is a far
@@ -852,15 +864,16 @@ def remember_fact(fact: str) -> str:
         atomic_write_text(path, body)
     except OSError as exc:
         print(f"[knowledge] cannot write fact file: {exc}", file=sys.stderr)
-        return "I couldn't save that to the knowledge folder, sir."
+        return "Ich konnte das nicht im Wissensordner speichern, Master."
 
     result = reindex()
     if result.ok:
-        return "Noted and filed permanently, sir."
+        return "Notiert und dauerhaft abgelegt, Master."
     # Saved but index didn't refresh — still durable on disk, say so honestly.
     return (
-        "I've saved that to your knowledge folder, sir, though the index "
-        "didn't refresh — ask me to update my knowledge."
+        "Ich habe das in Ihrem Wissensordner gespeichert, Master. Der Index "
+        "wurde aber nicht aktualisiert. Bitten Sie mich, mein Wissen zu "
+        "aktualisieren."
     )
 
 
@@ -872,7 +885,7 @@ def execute_knowledge_remember(params: dict) -> str:
     remember_fact()."""
     fact = (params.get("fact") or "").strip()
     if not fact:
-        return "There was nothing to remember, sir."
+        return "Es gab nichts zu merken, Master."
     return remember_fact(fact)
 
 
@@ -910,10 +923,81 @@ _REMEMBER_INTENT_RE_ALT = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# German alternatives (added alongside the English ones, which stay).
+# The owner now speaks German, so "aktualisiere dein Wissen" / "Wissen
+# aktualisieren" / "Wissensdatenbank neu einlesen" must reach the same
+# handler. Like the English pattern it requires the knowledge noun. Because
+# "wissen" is also the everyday verb ("ich muss das wissen", "die wissen
+# nicht, wie ..."), the German forms are kept TIGHT: only filler words
+# (bitte, jetzt, mal, ...) may sit between the verb and the noun, a bare
+# "wissen" only counts when the infinitive follows it directly, and "laden"
+# only counts as "neu laden". Otherwise ordinary sentences would be
+# swallowed as a reindex command instead of reaching Claude.
+_DE_DET = (
+    r"(?:dein|deine|deinen|deiner|mein|meine|meinen|meiner|ihr|ihre|ihren|"
+    r"ihrer|unser|unsere|unseren|unserer|das|die|den|der)"
+)
+_DE_KNOWLEDGE_NOUN = (
+    r"(?:\b" + _DE_DET + r"\s+wissen\b"
+    r"|\b(?:" + _DE_DET + r"\s+)?wissens(?:datenbank|basis|ordner|index)\b)"
+)
+_DE_FILLER = (
+    r"(?:\s+(?:bitte|jetzt|mal|doch|einmal|nochmal|kurz|gleich|sofort|"
+    r"schnell|komplett))*"
+)
+_DE_REINDEX_INFINITIVE = (
+    r"(?:(?:neu\s+)?(?:aktualisieren|erneuern|einlesen|indizieren|"
+    r"synchronisieren)|neu\s+laden)\b"
+)
+_REINDEX_INTENT_DE_RE = re.compile(
+    # "aktualisiere / erneuere (bitte) dein Wissen"
+    r"\b(?:aktualisiere|aktualisier|erneuere|erneuer|indiziere|"
+    r"synchronisiere|aktualisieren\s+sie|erneuern\s+sie)\b"
+    + _DE_FILLER + r"\s+" + _DE_KNOWLEDGE_NOUN
+    # "(dein) Wissen aktualisieren", "Wissensdatenbank neu einlesen"
+    + r"|" + _DE_KNOWLEDGE_NOUN + _DE_FILLER + r"\s+" + _DE_REINDEX_INFINITIVE
+    + r"|\bwissen" + _DE_FILLER + r"\s+" + _DE_REINDEX_INFINITIVE
+    # "lies die Wissensdatenbank neu ein"
+    + r"|\blies\b" + _DE_FILLER + r"\s+" + _DE_KNOWLEDGE_NOUN
+    + _DE_FILLER + r"\s+neu\s+ein\b",
+    re.IGNORECASE,
+)
+
+# "merk dir dauerhaft: X" / "merke dir für immer X" / "speichere dauerhaft
+# X". Same shape as the English pattern: the permanence word is the
+# disambiguator from ordinary "merk dir das" and from the face/voice
+# enrollment phrases. Group 'fact' is the payload. "speichere"/"notiere"
+# are also the first-person forms, so a preceding "ich" ("ich speichere
+# permanent alles in der Cloud") is a statement, not a command.
+_DE_PERMANENT = r"(?:dauerhaft|permanent|f(?:ü|ue)r\s+immer|auf\s+dauer)"
+_REMEMBER_INTENT_DE_RE = re.compile(
+    r"(?<!\bich\s)"
+    r"\b(?:merk(?:e)?\s+dir|merken\s+sie\s+sich|speicher(?:e)?|"
+    r"speichern\s+sie|notier(?:e)?|notieren\s+sie)\b"
+    r"(?:\s+(?:bitte|das|dies|folgendes))*"
+    r"(?:[\s,:-]+)?"
+    + _DE_PERMANENT +
+    r"[\s,:.-]+"
+    r"(?P<fact>.+\S)",
+    re.IGNORECASE | re.DOTALL,
+)
+# Adverb first: "dauerhaft merken: X" / "für immer speichern: X". This
+# elliptical form only works as a command at the START of the utterance
+# (optionally after "Jarvis," / "bitte"); mid-sentence it is almost always
+# a question ("Kann ich Fotos dauerhaft speichern, ohne ...?").
+_REMEMBER_INTENT_DE_RE_ALT = re.compile(
+    r"^\s*(?:(?:hey\s+)?jarvis[\s,:.!-]+)?(?:bitte[\s,]+)?"
+    + _DE_PERMANENT + r"\s+(?:merken|speichern|notieren)\b"
+    r"[\s,:-]+"
+    r"(?P<fact>.+\S)",
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def matches_reindex_intent(transcript: str) -> bool:
     """True if the user asked to rebuild the knowledge index."""
-    return bool(_REINDEX_INTENT_RE.search(transcript or ""))
+    return bool(_REINDEX_INTENT_RE.search(transcript or "")
+                or _REINDEX_INTENT_DE_RE.search(transcript or ""))
 
 
 def extract_remember_fact(transcript: str) -> str | None:
@@ -927,7 +1011,8 @@ def extract_remember_fact(transcript: str) -> str | None:
     follow-on, not v1 scope.
     """
     t = (transcript or "").strip()
-    for rx in (_REMEMBER_INTENT_RE, _REMEMBER_INTENT_RE_ALT):
+    for rx in (_REMEMBER_INTENT_RE, _REMEMBER_INTENT_RE_ALT,
+               _REMEMBER_INTENT_DE_RE, _REMEMBER_INTENT_DE_RE_ALT):
         m = rx.search(t)
         if m:
             fact = m.group("fact").strip(" \t\r\n.,:;-")

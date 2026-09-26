@@ -247,16 +247,16 @@ _DEFAULT_RULES: tuple[ClassRule, ...] = (
         name="doorbell",
         aliases=("Doorbell", "Ding-dong"),
         threshold=0.30, sustain=1, cooldown_seconds=25.0,
-        speak="Sir — that sounded like the doorbell.",
-        push="🔔 Doorbell",
+        speak="Master — das klang nach der Türklingel.",
+        push="🔔 Türklingel",
         rms_floor=_EVENT_RMS_FLOOR,
     ),
     ClassRule(
         name="knock",
         aliases=("Knock",),
         threshold=0.25, sustain=1, cooldown_seconds=30.0,
-        speak="Sir — there's someone at the door.",
-        push="🚪 Knock at the door",
+        speak="Master — da ist jemand an der Tür.",
+        push="🚪 Es klopft an der Tür",
         rms_floor=_EVENT_RMS_FLOOR,
     ),
     ClassRule(
@@ -269,8 +269,8 @@ _DEFAULT_RULES: tuple[ClassRule, ...] = (
         # check the Ring indoor cam), so bias toward catching a faint break.
         aliases=("Glass", "Shatter", "Breaking"),
         threshold=0.30, sustain=1, cooldown_seconds=45.0,
-        speak="Sir — I just heard glass breaking.",
-        push="💥 Glass breaking",
+        speak="Master — ich habe gerade Glas zerbrechen hören.",
+        push="💥 Glasbruch",
         rms_floor=_EVENT_RMS_FLOOR,
     ),
     # M81 — armed intrusion-by-voice. ARMED_ONLY: it never counts a window at
@@ -287,8 +287,8 @@ _DEFAULT_RULES: tuple[ClassRule, ...] = (
         name="voice_while_armed",
         aliases=("Speech", "Conversation", "Shout"),
         threshold=_VOICE_THRESHOLD, sustain=2, cooldown_seconds=120.0,
-        speak="Sir — I'm hearing a voice, and the house is armed.",
-        push="🗣 Voice heard while armed — check the snapshot.",
+        speak="Master — ich höre eine Stimme, obwohl das Haus scharfgeschaltet ist.",
+        push="🗣 Stimme im scharfgeschalteten Haus — bitte den Schnappschuss prüfen.",
         # Its OWN loudness floor (above the adjacent unit-bleed ceiling), NOT the
         # shared transient-event floor — see _VOICE_RMS_FLOOR.
         rms_floor=_VOICE_RMS_FLOOR,
@@ -306,22 +306,22 @@ _OTHER_RULES: tuple[ClassRule, ...] = (
         name="smoke_alarm",
         aliases=("Smoke detector, smoke alarm", "Fire alarm"),
         threshold=0.30, sustain=2, cooldown_seconds=60.0,
-        speak="Sir — I'm hearing a smoke alarm.",
-        push="🚨 Smoke / fire alarm",
+        speak="Master — ich höre einen Rauchmelder.",
+        push="🚨 Rauch- / Feueralarm",
     ),
     ClassRule(
         name="phone_ringing",
         aliases=("Telephone bell ringing", "Ringtone", "Telephone"),
         threshold=0.25, sustain=2, cooldown_seconds=30.0,
-        speak="Sir — your phone is ringing.",
-        push="📞 Phone ringing",
+        speak="Master — Ihr Telefon klingelt.",
+        push="📞 Telefon klingelt",
     ),
     ClassRule(
         name="kitchen_timer",
         aliases=("Beep, bleep", "Buzzer"),
         threshold=0.30, sustain=2, cooldown_seconds=60.0,
-        speak="Sir — that sounds like a kitchen timer going off.",
-        push="⏲ Kitchen timer",
+        speak="Master — das klingt nach einem Küchentimer.",
+        push="⏲ Küchentimer",
     ),
     ClassRule(
         name="running_water",
@@ -331,12 +331,35 @@ _OTHER_RULES: tuple[ClassRule, ...] = (
         # the score threshold alone.
         aliases=("Water tap, faucet", "Stream"),
         threshold=0.25, sustain=8, cooldown_seconds=600.0,
-        speak="Sir — there's been running water for some time. Did you leave a tap on?",
-        push="🚿 Running water (sink left on?)",
+        speak="Master — hier läuft schon länger Wasser. Haben Sie einen Wasserhahn offen gelassen?",
+        push="🚿 Wasser läuft (Wasserhahn offen?)",
         needs_volume_guard=True,
         experimental=True,
     ),
 )
+
+
+# German DISPLAY names for the rule keys above, for text the user sees or hears
+# (e.g. main.py's acoustic photo caption). Display only: `ClassRule.name` stays
+# the stable English key (logs, _recent_fires, on_visual_alert, the
+# what_did_you_hear tool result that Claude reads).
+RULE_DISPLAY_NAMES_DE: dict[str, str] = {
+    "doorbell": "Türklingel",
+    "knock": "Klopfen an der Tür",
+    "glass_break": "Glasbruch",
+    "voice_while_armed": "Stimme im scharfgeschalteten Haus",
+    "smoke_alarm": "Rauchmelder",
+    "phone_ringing": "Telefonklingeln",
+    "kitchen_timer": "Küchentimer",
+    "running_water": "fließendes Wasser",
+}
+
+
+def rule_display_name(name: str) -> str:
+    """German display name for a rule key; unknown keys fall back to the key
+    with underscores as spaces (the previous display behaviour)."""
+    key = name or ""
+    return RULE_DISPLAY_NAMES_DE.get(key, key.replace("_", " "))
 
 
 def _rule_window_passes(rule: ClassRule, score: float, rms: float,
@@ -645,7 +668,7 @@ class SoundDetector:
             # raise after the constructor succeeded).
             self._close_stream()
             self._safe_announce(
-                "I couldn't open the microphone for acoustic awareness, sir."
+                "Ich konnte das Mikrofon für die akustische Überwachung nicht öffnen, Master."
             )
             return
         self._active.set()
@@ -656,7 +679,7 @@ class SoundDetector:
             if r.rule.experimental:
                 print(f"[acoustic] note: '{r.rule.name}' is experimental — "
                       f"may need RMS-floor tuning", file=sys.stderr)
-        self._safe_announce("Acoustic awareness on, sir.")
+        self._safe_announce("Akustische Überwachung aktiv, Master.")
         if self._thread is None or not self._thread.is_alive():
             self._thread = threading.Thread(
                 target=self._infer_loop, name="SoundDetector", daemon=True
@@ -671,7 +694,7 @@ class SoundDetector:
             self._stop.set()
             self._close_stream()
             print("[acoustic] standing down", file=sys.stderr)
-            self._safe_announce("Acoustic awareness off, sir.")
+            self._safe_announce("Akustische Überwachung aus, Master.")
 
     def shutdown(self) -> None:
         """App-quit: silent wind-down. Daemon thread dies with the process
@@ -711,7 +734,8 @@ class SoundDetector:
             self._model_load_failed = True
             print(f"[acoustic] file setup failed: {err}", file=sys.stderr)
             self._safe_announce(
-                "I couldn't fetch the acoustic-model files, sir. Check the logs."
+                "Ich konnte die Dateien für das Akustikmodell nicht laden, Master. "
+                "Bitte prüfen Sie die Logs."
             )
             return False
 
@@ -724,7 +748,7 @@ class SoundDetector:
             print(f"[acoustic] panns_inference import failed: {exc}",
                   file=sys.stderr)
             self._safe_announce(
-                "Acoustic awareness needs panns_inference, sir."
+                "Die akustische Überwachung benötigt panns_inference, Master."
             )
             return False
         try:
@@ -738,7 +762,7 @@ class SoundDetector:
             print(f"[acoustic] AudioTagging() failed: "
                   f"{type(exc).__name__}: {exc}", file=sys.stderr)
             self._safe_announce(
-                "I couldn't initialise the acoustic model, sir."
+                "Ich konnte das Akustikmodell nicht initialisieren, Master."
             )
             return False
         self._labels = list(labels)
@@ -1042,7 +1066,7 @@ def _summarize_sounds(active, recent, fires, now, max_age_seconds, max_items=6):
     (nothing recorded in the window), and a summary of fired alerts + the
     general soundscape."""
     if not active:
-        return ("Acoustic awareness is off, sir — I'm not actively listening "
+        return ("Acoustic awareness is off, Master — I'm not actively listening "
                 "for sounds right now.")
 
     recent_in = [(ts, label, score) for (ts, label, score, _rms) in recent
@@ -1051,7 +1075,7 @@ def _summarize_sounds(active, recent, fires, now, max_age_seconds, max_items=6):
                 if now - ts <= max_age_seconds]
 
     if not recent_in and not fires_in:
-        return "Nothing notable, sir — it's been quiet."
+        return "Nothing notable, Master — it's been quiet."
 
     lines: list[str] = []
 
@@ -1085,7 +1109,7 @@ def _summarize_sounds(active, recent, fires, now, max_age_seconds, max_items=6):
         lines.append("Sounds detected: " + ", ".join(sound_bits) + tail)
 
     mins = int(round(max_age_seconds / 60.0))
-    header = f"In the last {mins} minute{'s' if mins != 1 else ''}, sir:"
+    header = f"In the last {mins} minute{'s' if mins != 1 else ''}, Master:"
     return header + "\n" + "\n".join(lines)
 
 
@@ -1095,7 +1119,8 @@ WHAT_DID_YOU_HEAR_TOOL = {
         "Report the non-speech AMBIENT sounds Jarvis has recently heard "
         "through acoustic awareness (M58) — use for 'what did you just "
         "hear?', 'did you hear something?', 'what was that noise?', 'have you "
-        "heard anything?'. Returns any monitored alerts that fired (doorbell, "
+        "heard anything?' (or German: 'was hast du gerade gehört?', 'hast "
+        "du etwas gehört?'). Returns any monitored alerts that fired (doorbell, "
         "knock, glass breaking) plus the general soundscape detected over the "
         "last few minutes. If acoustic awareness is off, it says so. This is "
         "about sounds IN THE ROOM, NOT the user's own spoken words or a "
@@ -1121,7 +1146,7 @@ def execute_what_did_you_hear(params: dict) -> str:
     """Run the tool. Always returns a string — never raises."""
     detector = _ACTIVE_DETECTOR
     if detector is None:
-        return "Acoustic awareness isn't set up on this machine, sir."
+        return "Acoustic awareness isn't set up on this machine, Master."
     minutes = params.get("minutes")
     try:
         minutes = int(minutes) if minutes is not None else 3
@@ -1132,4 +1157,4 @@ def execute_what_did_you_hear(params: dict) -> str:
         return detector.recent_sounds_summary(max_age_seconds=minutes * 60.0)
     except Exception as exc:  # noqa: BLE001 — defensive
         print(f"[acoustic] what_did_you_hear failed: {exc}", file=sys.stderr)
-        return "I couldn't read the recent sounds just now, sir."
+        return "I couldn't read the recent sounds just now, Master."

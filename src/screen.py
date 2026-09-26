@@ -1,8 +1,9 @@
 """screen_snapshot — give Jarvis eyes on the digital world.
 
 Captures the user's primary monitor and returns it as a Messages-API image
-content block, so Claude *sees* the screen and can answer in voice ("that's
-a 502 from your reverse proxy, sir — the upstream service is unreachable").
+content block, so Claude *sees* the screen and can answer in voice ("das ist
+ein 502 von Ihrem Reverse-Proxy, Master — der Upstream-Dienst ist nicht
+erreichbar").
 The SRE companion to M29's camera_snapshot: same plumbing, different sensor.
 
 Why this exists (M30, post-M29):
