@@ -1,595 +1,187 @@
 # Project: jarvis
 
-Agent-facing project instructions. Read this before touching the codebase.
-Full historical detail — every milestone, decision, and post-mortem — lives in
-[`docs/MILESTONES.md`](docs/MILESTONES.md).
+Agent instructions, loaded every session — rules only. Background lives in
+`docs/`: [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) (stack and reasons,
+subsystems, language details, runtime state, TLS),
+[`ENGINEERING.md`](docs/ENGINEERING.md) (incidents behind the rules, status,
+risks, backlog), [`MILESTONES.md`](docs/MILESTONES.md) (full log),
+[`CODE_AUDIT.md`](docs/CODE_AUDIT.md), [`ENV_VARS.md`](docs/ENV_VARS.md).
+Codex reads [`AGENTS.md`](AGENTS.md), a condensed copy of these rules — keep
+them in sync; if they disagree, this file wins.
 
-## Goal
-A Windows desktop voice assistant. An always-on microphone listens for the wake
-word "Jarvis" / "Hey Jarvis", transcribes the spoken question locally, sends the
-text to the Claude API with a Jarvis-personality system prompt, and reads the
-response back through the speakers via TTS. Inspired by Tony Stark's J.A.R.V.I.S.:
-courteous, dryly witty, concise.
+## The project
+An always-on Windows voice assistant (Python 3.12): wake word (openWakeWord) →
+local STT (faster-whisper) → Claude API (streaming, agentic tool loop, ~36
+tools) → TTS (edge-tts, pyttsx3 fallback). Around it: proactive monitors,
+camera security, acoustic awareness, speaker ID, a phone PWA and a Discord
+bridge. In production as a supervised process; the regression gate is
+**58/58 green** on the stable Windows baseline.
 
-The interesting part is not the voice loop — it is everything hung off it: an
-agentic tool layer (36 tools), proactive background monitors, a vision/security
-subsystem, a phone client, and a set of engineering conventions strict enough to
-keep an always-on process honest.
+| What | Where |
+|---|---|
+| Composition root — wiring only | `main.py` |
+| Voice loop, conversation state machine | `src/listen_loop.py` |
+| One turn: history, streaming, tool loop, TTS | `src/turn_runner.py` |
+| Persona, LLM calls, tool schemas (the index of what Jarvis can do) | `src/llm.py` |
+| Speech output, voices | `src/text_to_speech.py` |
+| Subsystem assembly, shutdown | `src/bootstrap.py` |
+| Config | `src/config.py`, `.env.example`, `docs/ENV_VARS.md` |
+| Durable writes | `src/atomic_io.py` |
+| Launchers | `jarvis.pyw` (silent), `jarvis_watchdog.pyw` (respawns on crash) |
+| Tests / gate | `tests/*_test.py`, `scripts/run_all_tests.py` |
 
-## Stack / Tools
-- **Language**: Python 3.12 on Windows.
-  - Windows-native, not WSL: audio device access. WSL2 audio bridging is
-    unreliable for always-on real-time listening.
-- **Wake word**: [openWakeWord](https://github.com/dscripka/openWakeWord)
-  - MIT, fully local, no API key or account. Ships a pre-trained `hey_jarvis`
-    model. CPU-only, ~3-5% continuous utilization.
-  - Slightly higher false-positive rate than commercial alternatives (Porcupine);
-    tunable via a confidence threshold. Porcupine was the original pick but now
-    requires a company email, which rules it out for an open personal project.
-- **Speech-to-text**: [`faster-whisper`](https://github.com/SYSTRAN/faster-whisper)
-  - Local Whisper on CPU; the small/base model is plenty for short commands.
-    No internet required — question audio never leaves the machine.
-  - Optionally offloaded to a CUDA box on the LAN over a small HTTP server
-    (cuts transcription 5-10 s → 1.5-2.5 s); falls back to local on any failure.
-- **LLM**: Anthropic Python SDK (`anthropic`)
-  - Default `claude-sonnet-5` (`CLAUDE_MODEL` overrides). Haiku for the cheap
-    background jobs (session summarizer, prediction miner). Opus only if a
-    request genuinely needs more reasoning.
-  - **Thinking is explicit.** Sonnet 5 runs *adaptive* thinking when the
-    `thinking` param is omitted. Voice and background paths pass
-    `thinking={"type": "disabled"}` (latency, plus small `max_tokens` budgets
-    would be truncated by an unplanned thinking block); engineer mode passes
-    `{"type": "adaptive"}`.
-  - **Prompt caching** on the system prompt — it is reused every turn. Per-turn
-    volatile context (clock, speaker identity) rides a *second, uncached* system
-    block so it never invalidates the cache.
-  - **Streaming** so TTS can start before the reply is complete.
-- **Text-to-speech**: [`edge-tts`](https://github.com/rany2/edge-tts) primary,
-  [`pyttsx3`](https://pyttsx3.readthedocs.io/) fallback.
-  - Edge is a free Microsoft online voice, surprisingly good. pyttsx3 is offline
-    (Windows SAPI) — the graceful degradation path when Edge is unreachable.
-- **Audio I/O**: [`sounddevice`](https://python-sounddevice.readthedocs.io/) —
-  cleaner than PyAudio, handles streaming well.
-- **UI**: `pystray` tray icon (four states) + a `customtkinter` console window.
-- **Vision**: `opencv-python` + `ultralytics` (YOLOv8n person detection) +
-  `face_recognition`/dlib for the enrolled-face auth path.
-- **Acoustic classification**: PANNs Cnn14 (`panns_inference`) — 527 AudioSet
-  classes, ~0.2 s CPU inference.
-- **Speaker ID**: Resemblyzer d-vectors (256-d), cosine similarity.
-- **Env**: `python-dotenv`. **Async**: `asyncio` around the listen → process →
-  respond cycle; background subsystems are daemon threads.
+## Working rules
+**JARVIS is an existing production project. Understand first, then change.**
 
-## Environment
-- Windows 10/11, Python 3.12+ in a virtualenv at `./venv`.
-- Microphone + speaker. A specific capture device can be pinned by name
-  substring or index via `JARVIS_MIC_DEVICE` (blank = Windows default).
-- Secrets live in `.env` (gitignored). `ANTHROPIC_API_KEY` is the only hard
-  requirement; every other integration (TMDB, Discord, Wolfram, Plex, calendar,
-  weather) is optional and degrades to "not configured" rather than failing.
-- `.env.example` is the committed template. `docs/ENV_VARS.md` is the full
-  inventory of tunables.
+- **Scope.** Don't remove or restructure existing features unless asked. Prefer
+  small, targeted diffs. Before editing, read the module *and its tests*.
+- **Plan before risk.** Hot path (`listen_loop`, `turn_runner`), security, tool
+  gates, durable stores, dependencies, or more than a few files: show the plan
+  and wait for approval.
+- **Test after change.** Matching suite(s) after a code change; the full gate
+  after larger ones. Below 58/58 is a regression until proven otherwise.
+- **Git.** `main` is the stable base. `basis-deutsch-stabil` is a frozen
+  snapshot of the German baseline — never commit to it. Work on a branch
+  (e.g. `claude-setup`). Commit or push only when asked.
+- **Secrets.** Never commit, print, overwrite or read out `.env`, keys, tokens
+  or certs. Refer to settings by name; `.env.example` is the template.
+- **Sensitive capabilities stay as configured.** Don't enable, widen or loosen
+  security mode, camera, microphone, screen capture, remote access (PWA,
+  Discord, geofence webhook), `run_code` / `pc_shell` / `system_control`,
+  self-update or background agents without an explicit instruction — not in
+  code, defaults or `.env`.
+- **Dependencies.** None without a real need; a new direct import gets its own
+  line in `requirements.txt` (and `requirements-ci.txt` if it is a plain wheel).
+- **Platform.** Windows first; venv `.venv` (Python 3.12); PowerShell commands.
+  Older docs and test headers saying `venv\` mean `.venv\`.
 
-## Key Files & Directories
-The core listen → process → respond spine:
-- `main.py` — the composition root, and *only* that: one `main()` that loads
-  config, builds subsystems, starts threads, and waits. It was 2,805 lines
-  until the 2026-07-28 extraction split it four ways (below).
-- `src/listen_loop.py` — the voice path and the conversation-level state
-  machine above a single turn: wake-word arming, barge-in, the follow-up
-  window, conversation mode, interpreter mode, the speaker gate, dismissals.
-- `src/turn_runner.py` — one turn, end to end: history, streaming, the tool
-  loop, sentence-chunked TTS, finalisation. **Its collaborators
-  (`stream_response`, `speak`, `speak_streaming`, `MemoryStore`,
-  `_seal_session`) must stay resolvable as module-level globals** — that is
-  the seam `turn_runner_test.py` patches, and `turn_runner_patch_test.py`
-  exists to fail if a refactor ever breaks it.
-- `src/bootstrap.py` — subsystem assembly: the two optional Plex connections,
-  the announcement fan-out, the remote console, the status registry, ordered
-  shutdown. Everything that *builds* a thing and returns a handle.
-- `src/logging_setup.py` — stdout/stderr wiring for the three launch modes.
-- `jarvis.pyw` — silent launcher (pythonw, no console); logs to
-  `%LOCALAPPDATA%\Jarvis\jarvis.log`.
-- `jarvis_watchdog.pyw` — supervisor; respawns `main.py` on crash.
-- `src/wake_word.py` · `src/speech_to_text.py` · `src/llm.py` ·
-  `src/text_to_speech.py` · `src/audio.py` — the spine's modules.
-- `src/config.py` — loads `.env`, holds all runtime tunables.
-- `src/ui.py` / `src/console.py` / `src/tray.py` / `src/hud.py` — the UI fan-out
-  facade and its three sinks (console window, tray, ambient overlay).
-  `src/reactor.py` — the shared arc-reactor renderer behind the console orb and
-  the HUD. Frames are **pre-rendered per (size, colour) on a daemon thread and
-  cached**, never drawn live: drawing one costs 9-25 ms, and at 20-30 fps that
-  would be a permanent 55-74% of a core competing with the audio threads. Both
-  callers keep their vector drawing as a fallback and use it until frames warm.
-- `src/security.py` · `src/sound_detector.py` · `src/speaker_id.py` ·
-  `src/face_auth.py` — the sensing subsystems.
-- `src/remote_console.py` / `src/remote_pwa.py` / `src/discord_bot.py` — the
-  remote clients.
-- `scripts/run_all_tests.py` — the unified regression gate (see Commands).
-- `tests/*_test.py` — the regression suites; everything here runs in the gate.
-- `docs/MILESTONES.md` — the engineering log's **index** (intro, a curated
-  "Start here", and generated contents); the entries themselves live in
-  `docs/milestones/part-N.md`. The index is generated — after adding an entry
-  run `python tests/milestones_toc_test.py --write`, or the gate fails.
-  `docs/CODE_AUDIT.md` — the
-  consolidation-pass audits. `docs/ENV_VARS.md` — config inventory.
-
-The remaining ~50 `src/` modules are individual tools and monitors (weather,
-news, TMDB, reminders, knowledge base, …). They are deliberately **not**
-enumerated here — a full manifest rots. Grep `src/llm.py` for the tool schemas;
-that file is the authoritative index of what Jarvis can do.
+**Tooling.** fast-context (`fast_context_search`) for broad or natural-language
+code search, grep for exact strings. context7 for current library docs
+(anthropic, faster-whisper, openwakeword, edge-tts, sounddevice, websockets,
+discord.py, ultralytics). CCG / Codex for review, architecture, debugging and
+second opinions — confirm their findings in the code before acting.
 
 ## Commands
 ```powershell
-# One-time setup
-python -m venv venv
-.\venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env   # then edit with real keys
+# Setup
+py -3.12 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip uninstall -y typing   # resemblyzer's backport shadows stdlib typing
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }   # never overwrite
 
-# Run (console — dev/debug)
-python main.py
+# Run
+.\.venv\Scripts\python.exe main.py                # console, dev/debug
+.\.venv\Scripts\pythonw.exe jarvis.pyw            # silent (production)
+.\.venv\Scripts\pythonw.exe jarvis_watchdog.pyw   # supervised (production)
 
-# Run (silent — production / autostart path, no console window)
-pythonw jarvis.pyw
-
-# Run (supervised — production; respawns on crash)
-pythonw jarvis_watchdog.pyw
-
-# THE CLOSE-OUT SANITY GATE — must be green before any commit
-venv\Scripts\python.exe scripts\run_all_tests.py
-
-# Replicate durable runtime state offsite (see "State that is not in git")
-pwsh -File scripts\backup_state.ps1 -Push
-
-# TLS cert for the phone PWA / geofence webhook (Tailscale + Let's Encrypt).
-# A daily scheduled task (JarvisTlsCertRenew) runs this; these are the manual
-# forms. Renewal is a NO-OP until 30 days before expiry.
-pwsh -File scripts\renew_tls_cert.ps1            # renew if due
-pwsh -File scripts\renew_tls_cert.ps1 -Force     # renew now
-pwsh -File scripts\renew_tls_cert.ps1 -Install   # (re)register the daily task
+# Test
+.\.venv\Scripts\python.exe scripts\run_all_tests.py   # full gate — must be 58/58 before any commit
+.\.venv\Scripts\python.exe tests\<name>_test.py        # one suite, exit 0 = pass
+.\.venv\Scripts\python.exe scripts\doctor.py           # deps, config, TLS cert days left
 ```
+- **Launchers** hard-code `venv\Scripts\pythonw.exe` (`jarvis.pyw:32`,
+  `jarvis_watchdog.pyw:63`). Start them with the `.venv` interpreter as above;
+  a bare `pythonw jarvis.pyw` or a double-click runs system Python and dies on
+  import. Changing the launchers is a code change — ask first.
+- **The gate** = `py_compile` + `import main` + a PWA JS structure check + every
+  `tests/*_test.py` (55). CI runs a lighter subset (`--allow-missing-deps`); the
+  local full gate is the bar.
+- **`tests/` is auto-collected; `scripts/` never is** — some scripts there cost
+  API calls or need hardware for hours. Keep it that way.
+- **Known gap:** `tests/scheduled_briefing_test.py` writes to the *real*
+  `%LOCALAPPDATA%\Jarvis\reminders.json`. New suites isolate `LOCALAPPDATA`
+  (and `JARVIS_KNOWLEDGE_DIR` + `JARVIS_KNOWLEDGE_DB`) like `reminders_test.py`.
+- After adding a milestone entry: `python tests/milestones_toc_test.py --write`,
+  or the gate fails.
 
-**The cert is 90 days and a running Jarvis loads it ONCE at startup.** So a
-renewal only takes effect after a restart, and an expiry produces *no symptom
-on this machine at all* — the failure is on the client side of the handshake,
-so the only sign is an error on the phone. Hence both a scheduled renewal and
-a `doctor.py` line reporting days-remaining.
-
-The gate folds in: `py_compile` over `main.py` + launchers + every `src/*.py`;
-an `import main` module-wiring smoke test; a structural JS check on the PWA
-(`scripts/js_parse_gate.py`); and every `tests/*_test.py` suite (55 at last
-count). It must exit 0. If the venv is unavailable, the minimum fallback is
-`python -m py_compile main.py jarvis.pyw src/*.py`.
-
-### State that is not in git
-`%LOCALAPPDATA%\Jarvis\` holds everything the process *learns*, and none of it
-is in this repo. Most of it genuinely rebuilds — logs rotate, `diagnostics/`
-regenerates, `knowledge.db` is only an FTS5 cache of the `jarvis-knowledge`
-repo. Two things do not: **`sessions/` + `summaries.jsonl`** (verbatim
-conversation history — the corpus `recall_conversation` searches, and
-unreconstructable by any means) and **`speakers/`** (voice enrollments,
-rebuildable only by having each person re-enroll aloud).
-
-`scripts/backup_state.ps1` replicates ~675 KB of that 18.6 MB tree to the
-private `jarvis-state` repo. **It selects by ALLOWLIST, and that is
-load-bearing** — the same directory holds a TLS private key, a Ring API token,
-and `security/` camera evidence (photographs of whoever walked past). A
-denylist starts replicating those the day someone drops in a file its patterns
-did not anticipate; an allowlist fails closed. When you add a new durable
-store, it is NOT backed up until you add it to `$include` in that script.
-
-**The directory is the boundary.** Anything in `tests/` is collected by the gate
-automatically — adding a suite there is the whole registration step. Nothing in
-`scripts/` is ever collected, whatever it is named: that is where the
-operational entry points (`run_all_tests.py`, `doctor.py`, `js_parse_gate.py`)
-and the hand-run instruments live. Several of those instruments cost live API
-calls (`effort_probe.py`, `web_search_version_probe.py`) or need hardware and
-run for hours (`leak_repro.py`, the `*_soak.py` pair) — they must never be
-picked up by CI, and a directory guarantees that where a naming convention only
-asks politely.
-
-## Architecture
-
-### The spine
-`wake word → capture → STT → LLM (agentic, streaming) → TTS`, with the tray/
-console/HUD reflecting each phase. `TurnRunner` in `main.py` owns a single turn:
-it appends to history, streams the response, runs the tool loop, feeds sentences
-to TTS as they complete, and finalizes (memory write, telemetry).
-
-Turns arrive from **four origins** — local voice, the console text box, the
-phone PWA, and a Discord channel — through one `text_queue`. The origin is a
-first-class parameter: it derives `speak` (never talk to an empty room for a
-phone-typed message) and `restricted` (see Least privilege below).
-
-### The tool layer
-Claude drives an agentic loop (max 8 iterations) over:
-- **Server-side**: `web_search`, `web_fetch`.
-- **Client-side data tools** (all fail-soft, all read-only): weather + NWS
-  weather alerts, sports, news (RSS), TMDB film/TV/person/watch-providers, game
-  info + playtime, WolframAlpha, a personal knowledge base (hybrid FTS5 +
-  embedding search over a curated markdown corpus), conversation recall
-  (full-text + semantic search over verbatim session transcripts), reminders,
-  and composition tools (`get_briefing`, `get_good_night`, `status_report`,
-  `what_did_you_hear`).
-- **Client-side action tools** (gated — see below): `system_control`,
-  `pc_shell` (read-only 18-verb allowlist), `run_code` (Python in an ephemeral
-  network-less Podman container), `update_jarvis`, file/screen/camera capture.
-- **MCP**: a Plex Media Server MCP subprocess bridged into the same tool loop
-  behind a voice allowlist.
-
-### Subsystems (all optional, all fail-soft)
-- **Vision security** — YOLOv8n person detection on a webcam; a pet-rejection
-  height heuristic; a challenge-response flow (spoken passphrase *or* enrolled
-  face, first match wins) before any deterrent fires; evidence snapshots; push
-  notification. Arm/disarm by voice, tray, or a geofence webhook.
-- **Acoustic awareness** — PANNs classifier on its own input stream; fires on a
-  small set of salient classes. While armed it also triggers a look-and-describe
-  (camera frame → Claude vision → push).
-- **Proactive monitors** — homelab health, calendar (pre-event announces),
-  severe weather, and an "anticipation" layer that fuses the world-state and
-  asks the model for at most one genuinely useful cross-domain insight per tick
-  (most ticks correctly produce nothing).
-- **Remote clients** — a token-gated `websockets` server + PWA (type, talk,
-  hear replies, see state), and a Discord bot bridge.
-- **Reliability** — a crash watchdog, a mic-session supervisor, a memory
-  watchdog, atomic+fsync'd JSON stores.
-
-## Constraints & Rules
-
-### Privacy by design
-- **Wake word runs locally.** The mic stream is always open, but only
-  openWakeWord sees the raw audio, and it is only looking for one pattern.
-- **Speech-to-text is local.** The audio of the actual question never leaves the
-  machine (or, with GPU offload enabled, never leaves the LAN).
-- **Only the transcribed text** goes to the Claude API.
-- Edge TTS *is* online — Microsoft sees the response text. Switch to pyttsx3 as
-  primary if that matters.
-- Any subsystem that ships data off-box (push notifications, remote clients) is
+## Privacy by design
+- Wake word and STT are local; only the transcribed text goes to Claude. Edge
+  TTS is online (Microsoft sees reply text).
+- Anything that ships data off-box (push notifications, remote clients) is
   opt-in and off by default.
-- **One exception, and it is deliberate: background agents (M91).** A
-  long-horizon task runs on Anthropic's infrastructure, not this machine — it
-  fetches pages and writes working files inside an Anthropic-hosted sandbox.
-  That is genuinely more than "only the transcribed text leaves", so it is
-  **off unless `JARVIS_BACKGROUND_AGENTS=1`**. Do not quietly widen this: if a
-  future feature sends more off-box, it gets its own flag and its own line
-  here. The promise above is only worth making if it is kept literally for
-  anyone who hasn't opted in.
+- **One deliberate exception: background agents (M91)** run on Anthropic's
+  infrastructure, so they are **off unless `JARVIS_BACKGROUND_AGENTS=1`**. Don't
+  widen this quietly — any new off-box feature gets its own flag and its own
+  line here.
 
-### Latency targets
-- Wake word: <100 ms.
-- STT: <2 s for a typical command.
-- First audible TTS chunk within 1 s of LLM streaming start.
-- End-of-question to start-of-answer: 2-3 s.
+## Security boundaries
+- **Least privilege, server-side.** Remote origins (phone, Discord) get a
+  restricted tool surface — no shell, system control, filesystem, code
+  execution or self-update — enforced at **two gates**: the tool list offered
+  to the model *and* the executor's deny check. Never prompt-only. Re-opening
+  one tool for one origin is a surgical allowance, not a boundary flip.
+  *Jarvis, not Ultron.*
+- **Confirmation gates.** Mutating verbs take `confirm: bool`; without it they
+  return a description of what would happen, carrying what the user needs to
+  decide (self-update lists the actual pending commits). Privileged verbs also
+  need an elevated process (opt-in tray action).
+- **`run_code` is contained, not allowlisted:** ephemeral Podman,
+  `--network=none`, no host mount, CPU/memory/PID caps, timeout, non-root, full
+  audit log.
 
-### Streaming everything
-Stream Claude's response; feed TTS in sentence chunks rather than waiting for
-the full reply. This is what makes the interaction feel immediate rather than
-transactional.
+## Engineering rules
+One line each; the incidents behind them are in
+[`docs/ENGINEERING.md`](docs/ENGINEERING.md).
+- **Fail soft, never crash the loop.** Optional components log and degrade to
+  an honest "not configured" / "unavailable". Two threads must never die: the
+  listening loop and the **Announcer** (the only path for unprompted speech,
+  including security alerts). UI sinks (`_console_call`, `_remote_call`) stay
+  defensive on both sides.
+- **`turn_runner` seam.** `stream_response`, `speak`, `speak_streaming`,
+  `MemoryStore`, `_seal_session` stay module-level globals;
+  `turn_runner_patch_test.py` fails if a refactor breaks that.
+- **New durable state uses `src/atomic_io.py`** (no UPS on the target). It is
+  not backed up until added to `$include` in `scripts/backup_state.ps1` — an
+  allowlist on purpose, since that folder also holds a TLS key, a Ring token
+  and camera evidence. `sessions/`, `summaries.jsonl`, `speakers/` are
+  irreplaceable.
+- **Measure before you tune.** Correlate scores with their input. Before tuning
+  a threshold, prove one exists (`min(POS) > max(NEG)` on labelled data). If a
+  fix migrates data, re-validate after the migration.
+- **Cooperative gates have two sides.** Heavy CPU work yields while audio
+  plays: every consumer yields, every producer (every path that speaks) raises
+  the gate — including model *load* at startup. Authentication must grant
+  something (a passed challenge opens a short trusted session).
+- **A bug a test would have caught earns a test**, with a fixture big enough to
+  express the bug.
+- **Fix the failure mode, not the instance.** Symmetric components (the two
+  capture streams, capture/playback rings, every origin in the tool gate) fail
+  symmetrically — check the peers.
+- **Rule of three** before extracting a shared helper.
+- **Cost and latency.** Sonnet by default, Haiku for background jobs, prompt
+  caching on the system prompt; thinking explicitly disabled on voice and
+  background paths, adaptive only in engineer mode. Stream everything; short
+  replies. Targets: wake word <100 ms, STT <2 s, first audio ≤1 s after
+  streaming starts, question-to-answer 2-3 s.
+- **Consolidation passes** (no new features; fix in risk order) after ~20
+  milestones, a recurring regression, or a god-file signal. Look at the newest
+  code first. Template: [`docs/CODE_AUDIT.md`](docs/CODE_AUDIT.md).
+- **Close-out.** Gate green → sync `CLAUDE.md`, `AGENTS.md`, `docs/MILESTONES.md`
+  → commit/push when the user asks. Mark deferred items done in this file — it
+  is the only state a context reset reloads.
 
-### Engineering rules
-These are the conventions that keep an always-on, always-listening process
-maintainable. Follow them.
+## Persona and language
+- Butler tone: courteous, dryly witty, concise — the films' understated
+  J.A.R.V.I.S., not a parody. Headline first, then offer more. Short
+  sentences, no needless apologies.
+- **German by default** (formal "Sie"), even when the input contains English.
+  Other languages only on explicit request (Spanish: formal *usted*, Latin
+  American). The owner is **"Master"** — sparingly, never "sir"; other enrolled
+  people by name.
+- User-facing text stays German. Tool results, prompts, tool descriptions, logs
+  (`self_review` parses them), identifiers and wire values stay English.
+  Scheduled briefings are composed in English and translated at fire time.
+- In code: persona `JARVIS_SYSTEM_PROMPT` (`src/llm.py`); reply language and
+  voice `turn_runner.REPLY_LANGUAGE = "de"`; voices `VOICE_BY_LANG`
+  (`src/text_to_speech.py`). Changing them is a behaviour change.
+- Engineer mode (tray toggle) lifts the brevity rule and enables adaptive
+  thinking. After any model swap, check reply *length* as well as tool routing.
 
-- **Never commit `.env`.** `.gitignore` enforces it.
-- **Fail soft, never crash the loop.** Every optional component (TTS backend,
-  model download, a network tool, an MCP subprocess) must log and degrade. A
-  component that cannot do its job returns an honest "not configured" /
-  "unavailable" string rather than raising.
-  **TWO threads must not die, not one (M100).** The listening loop is the
-  obvious one. The other is the **Announcer** — the single path by which Jarvis
-  speaks unprompted, so its death takes reminders, weather, homelab *and every
-  security alert* with it, silently and with no symptom anyone can report. It
-  died once, one second into a session, on an unguarded Tk call, and the machine
-  ran mute for twelve hours overnight. Both loops now guard their whole per-item
-  body; the UI fan-out sinks (`_console_call`, `_remote_call`) are defensive on
-  both sides, because decoration must never be able to kill a worker thread.
-- **Least privilege, enforced server-side.** Remote origins (phone, Discord) get
-  a *restricted tool surface*: no shell, no system control, no filesystem, no
-  code execution, no self-update. This is enforced at **two gates** — the tool
-  list is filtered before it is offered to the model, *and* the executor
-  re-checks the deny list by name. It is never prompt-only. Re-opening a single
-  tool for a single origin is a surgical per-origin allowance, not a boundary
-  flip. The guiding line: *Jarvis, not Ultron.*
-- **Confirmation-gate every mutating action.** A destructive or irreversible
-  verb (kill a process, restart/stop a service, cycle DHCP, pull code and
-  restart) takes a `confirm: bool` parameter; calling it without confirmation
-  returns a *description* of what would happen. **The gate must carry the
-  information needed to evaluate it** — e.g. self-update previews the actual
-  pending commits rather than asking "shall I pull?". A gate the user cannot
-  evaluate is procedure, not safety. Privileged verbs additionally require the
-  process to be running elevated, which is an opt-in tray action, never the
-  default.
-- **The container is the boundary for arbitrary code.** `run_code` cannot be
-  allowlisted (arbitrary code is arbitrary), so it is contained instead:
-  ephemeral Podman, `--network=none`, no host mount, CPU/memory/PID caps, hard
-  timeout, non-root. Zero host blast radius, therefore no confirmation gate —
-  but a full audit trail in the log.
-- **Measure before you tune.** Do not adjust a threshold from a symptom. Get the
-  numbers first — the project has repeatedly found that the obvious knob was the
-  wrong one (an inference model was 17× too slow to ship, so it was replaced
-  rather than tuned; a detection threshold was the weak lever where an amplitude
-  floor was the real discriminator; a memory leak was attributed to the ML model
-  for two milestones before a harness proved it was the video-capture handle).
-  Correlate a score with its *input*, never tune on scores alone.
-  **Before tuning a threshold, prove one EXISTS (2026-08-22).** Label the
-  positives and negatives and check `min(POS) > max(NEG)`. The
-  `knowledge_remember` dedup metric scored 0.750 vs 1.000 — it *overlapped*,
-  so no threshold could have worked and picking a higher number was motion,
-  not a fix. A metric that cannot separate a labelled set is unusable, not
-  mis-tuned. **And if a fix also MIGRATES data, re-validate after the
-  migration** — that same fix shipped a validation case its own corpus
-  consolidation had silently invalidated in the same commit.
-- **Cooperative gates have two sides.** Heavy background CPU work (vision,
-  acoustic inference) yields while audio is playing, via a shared counted event.
-  A gate is only as complete as (a) every *consumer* that opts into yielding and
-  (b) every *producer* — every code path that speaks — that raises it. Both
-  halves have been the source of a regression; both are now tested.
-  **Authentication must GRANT something (M101).** The voice lock and the
-  security challenge are two gates on the same person; for a while, clearing
-  the second bought nothing at the first, so the user spoke the passphrase, was
-  accepted, and was then refused twice saying "stand down". A successful
-  challenge now opens a short trusted session, cleared on arm and disarm.
-  **And it must cover STARTUP, not just the steady state (M99.1).** The gate
-  covered the watcher's poll loop and the dlib warm but not the YOLO *model
-  load*, so arming stuttered its own confirmation every single time — the one
-  burst that is guaranteed to coincide with speech, because arming is what
-  triggers both. When adding a subsystem, gate its load path, not only its loop.
-- **Cost discipline.** Sonnet by default, Haiku for background jobs, prompt
-  caching on the system prompt. Escalate deliberately, not reflexively.
-- **Latency over cleverness.** Short replies. This is voice.
-- **Rule of three before extracting.** Two call sites is a coincidence; three is
-  a pattern. Shared helpers (`http_util`, `atomic_io`, `gates`) were each
-  extracted on the third consumer, not speculatively.
-- **New durable state uses `src/atomic_io.py`.** fsync-before-replace, unique
-  temp names, Windows `os.replace` retry. The target machine has no UPS, so an
-  unclean power loss is a realistic failure mode, not a theoretical one.
-- **A bug that a test would have caught earns a test.** The regression gate grew
-  from a handful of suites to 55 exactly this way. **Check the FIXTURE is big
-  enough to express the bug**: the dedup suite already had a
-  "distinct facts stay separate" case and it passed for the wrong reason —
-  its fixture corpus held one short note, and the defect only appears against
-  a large one. A green negative case over a toy fixture asserts nothing.
-- **Fix the failure mode, not the instance.** When a fix lands on a component,
-  find its peers and ask whether they share the defect. M99 cost a milestone to
-  a `latency="high"` + throttled-callback-log fix that was applied to the
-  acoustic capture stream and not to the main microphone — in the same commit
-  that touched both files. Symmetric components (the two capture streams, the
-  capture and playback rings, every origin in the tool gate) fail symmetrically;
-  a fix to one is a checklist for the rest, not a closed ticket.
-- **QoL consolidation cadence.** Periodically run a no-new-features hardening
-  pass: verify the regression net is green, run read-only audits across the
-  tree, then fix in *risk order* (correctness → latent → cosmetic), gating each
-  fix. Trigger on any of: (a) ~20 milestones since the last pass, (b) a
-  regression recurs that a test would have caught, or (c) a core file crosses a
-  god-file threshold (a 1,500-line `main()` is a signal regardless of milestone
-  count). The count is the backstop; (b) and (c) are the real triggers — debt
-  accrues with coupling events, not with the calendar. Template and findings in
-  [`docs/CODE_AUDIT.md`](docs/CODE_AUDIT.md).
-- **Close-out procedure.** Run the regression gate → sync this `CLAUDE.md` and
-  `docs/MILESTONES.md` → commit and push. Mark deferred items done *in this
-  file*, not only in a detail log: this file is the only state a context reset
-  reloads.
-
-## Personality / system prompt notes
-The persona:
-- Butler tone: courteous, dryly witty, concise. **Replies are German by
-  default** (formal "Sie"), even when the input contains English words;
-  English or Spanish only when the owner explicitly asks for it.
-- Address the owner as "Master" *sparingly* — not every sentence. Never "sir".
-  Other enrolled people are addressed by name.
-- Short replies by default. This is voice; long replies are tedious to listen
-  to. The pattern is headline first, then offer the longer version — which also
-  feeds naturally into the follow-up window.
-- Short sentences (better TTS prosody). Never apologize unnecessarily, never
-  over-explain.
-- Closer to the films' understated J.A.R.V.I.S. than a parody.
-
-Engineer mode (a tray toggle) overrides the brevity rule and enables adaptive
-thinking, for when the answer genuinely needs structured depth.
-
-**Note on model migrations:** verify *verbosity*, not just tool routing. A model
-swap can leave routing perfect while default reply length triples — which, on a
-voice interface, is a regression measured in minutes of unwanted speech. Probe
-both.
-
-## Multilingual support (German default, English + Spanish on request)
-Everything the user hears or sees in normal mode is German; the owner is
-addressed as "Master". Speech input stays multilingual.
-
-- **Auto-detect per turn.** faster-whisper returns `detected_language` with each
-  transcript. It is stored with the turn and picks the fixed fallback lines
-  (apology / empty-reply ack have en/es variants), but it no longer picks the
-  reply language: the system prompt fixes replies to German, and
-  `turn_runner.REPLY_LANGUAGE` voices them with the German voice.
-- **Voice mapping** (`VOICE_BY_LANG` in `src/text_to_speech.py`):
-  ```python
-  VOICE_BY_LANG = {
-      'de': 'de-DE-ConradNeural',   # default reply voice
-      'en': 'en-GB-RyanNeural',     # calm British male
-      'es': 'es-MX-JorgeNeural',    # formal male, butler-like
-  }
-  ```
-  An explicitly requested English reply is still voiced by the German voice.
-- **What stays English**: tool results only Claude reads, prompts/tool
-  descriptions, logs (self_review/self_status parse them), identifiers and
-  wire values. Scheduled briefings are composed in English (the composers are
-  also tool results) and translated to German at fire time
-  (`reminders._translate_or_keep`, wired to `llm.stream_translation`).
-- **System prompt addendum** for an explicit Spanish request: formal *usted*,
-  Latin American conventions.
-- **Interpreter mode** is the recombination payoff: "be my interpreter" stops
-  Jarvis answering and makes him *relay* — each utterance translated into the
-  other language of the configured pair and spoken in that language's voice,
-  continuously, with no wake word between turns, until "stop interpreting"
-  (German: "sei mein Dolmetscher" / "Dolmetschen beenden"). A German owner sets
-  `JARVIS_INTERPRETER_LANGS=de,es`; the start/stop confirmations follow the pair.
-  Built from the per-turn language detection and voice map that already existed.
-- **Wake-word caveat**: the `hey_jarvis` model is English-trained, so a
-  Spanish-accented "Jarvis" (soft J) triggers less reliably. Mitigations, in
-  order of preference: lower the confidence threshold; train a custom wake word;
-  fall back to a more phonetically robust word.
-
-## Current Status
-The project is feature-complete for its intended use and running in production
-as a supervised always-on process. ~101 milestones; the regression gate is at 58
-gates (55 test suites + 3 structural) and green.
-
-**Fixed 2026-08-22 — consolidation pass #6 ([`docs/CODE_AUDIT.md`](docs/CODE_AUDIT.md)).
-The headline finding was in code written the previous evening — the dedup fix
-immediately below. That is now twice in a row that the top defect of a pass was
-in the newest code in the tree; treat "written this week" as the highest-yield
-place to look.**
-
-- 🚨 **`knowledge_remember` silently discarded new facts and said it had them.**
-  The 2026-08-21 dedup fix scored with containment over the *smaller* token set,
-  `|A ∩ B| / min(|A|,|B|)`. That denominator collapses to the new fact whenever
-  the new fact is short, so the question became "do all three of my words appear
-  ANYWHERE in that 196-token note?" — nearly always yes. **Large notes became
-  attractors.** Proven end-to-end on a copy of the real corpus: *"The Plex server
-  is broken."* matched `homelab-and-runbooks.md` at 1.00 (it contains "Plex Media
-  Server" and "broken WMI" in unrelated sentences), was judged fully covered, and
-  **nothing reached disk** — with the reply "I already had that one filed, sir."
-  A write path that drops the write and reports success is the worst shape a bug
-  can take: there is no symptom to report.
-  **The metric was replaced by measurement, not argument.** Scored 5 labelled
-  restatements against 10 labelled distinct facts on the real corpus; a metric is
-  only usable if `min(POS) > max(NEG)`. The shipped one gave 0.750 vs **1.000** —
-  it *overlapped*, so no threshold existed at all; it was unusable, not
-  mis-tuned. **Ochiai** (set cosine, `|A ∩ B| / sqrt(|A|·|B|)`) separated widest
-  (0.471 vs 0.279) and is now the metric, cut at **0.40**. Routing went 5-of-10
-  wrong → 10-of-10 right.
-  **Two lessons worth more than the fix.** (1) The old note below claimed
-  *"Osiris is female"* scores 0.50 and stays separate — true when written, and
-  **invalidated by its own commit's data migration**, which consolidated ten cat
-  notes into one holding both tokens, taking it to 1.00. If a fix also migrates
-  data, re-validate *after* the migration. (2) The suite already had a
-  "distinct fact must not be swallowed" case and it **passed for the wrong
-  reason** — its fixture corpus held one *short* note, and the bug only appears
-  against a *large* one.
-- 🚨 **The corpus was the one durable store not written atomically.** Seven
-  modules use `src/atomic_io.py`; `knowledge.py` — which writes the only
-  user-*authored* data in the tree — used plain `write_text`. The merge path is a
-  read-modify-write of a whole note, so a torn write destroys every fact already
-  accreted into it. Both writes are now atomic.
-- Also: three more direct-but-transitive imports declared (`torch`, `icalendar`,
-  `av` — pass #5 fixed `comtypes` and never checked its peers), `plex_mcp`
-  tool population made idempotent, 13 unused imports and one orphaned helper
-  removed, and six stale counts corrected across `README`/`CLAUDE.md`/CI.
-
-**Fixed 2026-08-21 — two knowledge-layer defects, both found by auditing the
-corpus rather than by any test:**
-
-- 🚨 **The test suite was destroying the production knowledge index.**
-  `_corpus_dir()` honored `JARVIS_KNOWLEDGE_DIR`, so `knowledge_remember_test`
-  pointed the corpus at a temp dir and looked isolated. It was not:
-  `remember_fact()` ends in `reindex()`, and `_db_path()` honored **no**
-  override, so every gate run rebuilt the user's real `knowledge.db` from a
-  temp corpus holding one fixture. Found because the live index contained
-  exactly one entry, named after the test's fixture pets. **Overriding the
-  corpus without the index is a half-isolation that looks complete.** Fixed by
-  adding `JARVIS_KNOWLEDGE_DB`; the test now sets both, and asserts the real
-  index is byte-identical afterwards.
-- 🚨 **`knowledge_remember` duplicated instead of updating.** The filename was a
-  slug of the fact *text*, so a reworded fact wrote a new file — and where slugs
-  *did* collide, the guard appended a timestamp and wrote a new file anyway. It
-  duplicated on **both** paths. One fact (the four cats) had been stored **ten
-  times**, 10 of 14 corpus entries. A restatement is now detected by set
-  similarity and **appended** to the existing note rather than duplicating it.
-  *(The metric and threshold this entry originally described were replaced the
-  next day — see the 2026-08-22 block above for why they could not work.)*
-
-**Working:**
-- The core loop: wake word → local STT (EN/ES auto-detect) → streaming,
-  prompt-cached, agentic Claude call → streaming TTS, with a tray icon, a
-  console window with live transcript and waveform, and an optional ambient
-  overlay. Both the console orb and the overlay render the shared pre-rendered
-  arc reactor (`src/reactor.py`).
-- **Conversational**: a follow-up window after each reply (no wake word needed);
-  a persistent hands-free conversation mode; barge-in (interrupt mid-reply by
-  saying the wake word).
-- **36 tools** across web, data, personal knowledge, memory recall, reminders,
-  diagnostics, and gated system actions. See "The tool layer" above.
-- **Memory**: in-process turn history + a JSONL session store, summarized at
-  session boundaries and recalled into the system prompt; a separate curated
-  knowledge base (hybrid keyword + embedding retrieval); full-text/semantic
-  search over verbatim past conversations.
-- **Senses**: webcam (vision security, on-demand snapshots), screen capture,
-  acoustic classification, per-turn speaker identification.
-- **Proactive**: homelab monitoring, calendar pre-event announces, severe-weather
-  alerts, scheduled briefings, an anticipation layer, and a quiet-hours policy
-  that lets important announcements pierce while routine ones defer.
-- **Long-horizon work (M91/M92)**: research tasks that outlive the turn, run on
-  Anthropic's Managed Agents and polled to completion, delivered when ready
-  (and held back through quiet hours). Schedulable — "every Monday, look into
-  X" reuses the existing reminder scheduler. **Off unless
-  `JARVIS_BACKGROUND_AGENTS=1`** — see the privacy exception above.
-- **Self-diagnosis (M93)**: `self_review` clusters this machine's own logs
-  across sessions and restarts into ranked recurring problems, read-only.
-- **Clients**: local voice, console, a token-gated phone PWA (type / push-to-talk
-  / reply audio / state), and a Discord bridge — the last two on a restricted
-  tool surface.
-- **Reliability**: crash watchdog, mic-session supervisor, memory watchdog,
-  atomic durable writes, self-update behind a confirmation gate.
-
-**Known unknowns / risks:**
-- **Wake-word false positives.** Background speech or media saying "Jarvis" can
-  trigger a capture. The confidence threshold is the knob; the opt-in speaker
-  gate (answer only enrolled voices) is the stronger mitigation.
-- **TTS prosody.** Edge is good, not perfect. Voice choice and pacing are the
-  levers.
-- **Audio device selection.** Multi-device machines need `JARVIS_MIC_DEVICE`
-  pinned; note that budget microphones often enumerate under a generic OEM
-  string, so identify the device by unplug-diff rather than by guessing a name.
-- **Armed-mode audio starvation is OPEN, and now instrumented (M99).** While
-  armed, the capture stream drops samples: 565 PortAudio input overflows in a
-  69-minute armed window vs 1 in the 112 unarmed minutes before it. This is a
-  4-core box running openWakeWord, PANNs, YOLO and dlib concurrently, and a
-  single 90 ms YOLO call straddles the 80 ms audio callback budget — so the
-  cost is GIL starvation, not any one subsystem. It degrades speaker ID (0.82
-  unarmed → 0.64 armed) and is the likely source of the armed-only TTS stutter.
-  **Three candidate fixes were measured and rejected — do not re-attempt them
-  blind:** `latency="high"` is a no-op (`sd.default.latency` is already
-  `['high','high']`, and an explicit blocksize pins the ring regardless);
-  lowering capture resolution makes YOLO *slower*; bounding the capture queue
-  would gap the STT clip. The remaining real levers are less armed CPU work, or
-  an explicit numeric ring depth traded against the "first audio within 1 s"
-  target. **Take armed-mode numbers before choosing** — `[audio] status: input
-  overflow` (capture, with queue depth) and `[tts] output underflow` (playback;
-  this one is literally the audible stutter and was invisible until M99). Both
-  logs are rate-limited, because a per-event log inside a starved audio callback
-  feeds the stall it reports.
-- **Fully hands-free talk-over** (interrupting without the wake word) was built
-  and shelved: once the assistant's own echo is cancelled, an energy gate fires
-  on *any* residual sound, because it detects the presence of sound, not the
-  intent to interrupt. The code is kept behind a default-off flag for a
-  headset/quiet-room scenario. Wake-word barge-in is the robust UX.
-
-## Possible future work
-Neutral backlog; nothing here is committed. The standing discipline is
-**iterate on real usage** — do not pre-build.
-
-- Multi-camera / RTSP support (OpenCV already supports it; needs a camera
-  registry and a `camera` parameter).
-- Additional MCP servers through the existing bridge (home automation, 3D
-  printing) — same async↔sync wrapper and voice allowlist. **Home Assistant is
-  the concrete next one and is deliberately NOT built**: there is no HA
-  instance on this network to validate against, and an integration written
-  against documentation alone would ship untested against the one thing that
-  matters (the real entity registry). Build it when HA is actually installed.
-- Growing the knowledge corpus. The hybrid retrieval is correct but the corpus is
-  currently too small to demonstrate an aggregate win; size, not the algorithm,
-  is the limiter.
-- Finer-grained per-verb tuning in `pc_shell` / `system_control` as real use
-  cases prove out.
-- A custom multilingual wake-word model for non-English accents.
-- Extracting the text/voice intent dispatch (a real hot-path refactor; wants a
-  test at the right level first). **Measured 2026-08-22:** `listen_loop()` is
-  **945 lines taking 15 parameters**, and its body is largely one 598-line
-  closure (`_voice_session_loop`) capturing **11 of them** plus a `nonlocal`.
-  That capture is why it resists extraction — it needs a small state object
-  (a `VoiceSession` holding the captured collaborators), not a longer
-  parameter list. This is the sharpest structural item in the tree, and a
-  worse smell than any large *file*: by contrast `security.py`'s 1,714 lines
-  are 36 methods with the largest at 181, which is a big class, not a god
-  function. Deferred twice now (passes #5 and #6) for the same reason — hot
-  path, no correctness payoff, needs its seam tested first.
+## Open items to know before touching related code
+Details in [`docs/ENGINEERING.md`](docs/ENGINEERING.md).
+- **Armed-mode audio starvation (M99) is open.** Three fixes were measured and
+  rejected — read the entry before touching audio buffering.
+- **`listen_loop()` extraction is deferred** (945-line function, 598-line
+  closure): it needs a `VoiceSession` state object and a tested seam first.
+- **Home Assistant MCP is deliberately not built** until a real HA instance
+  exists to validate against.
